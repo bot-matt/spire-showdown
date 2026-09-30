@@ -22,4 +22,21 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo build --release
-
+      - name: Assemble platform mod bundle
+        shell: bash
+        run: |
+          mkdir -p ../package/SpireShowdown
+          cp ../dist/mod/SpireShowdown/SpireShowdown.dll ../package/SpireShowdown/
+          cp ../dist/mod/SpireShowdown/SpireShowdown.json ../package/SpireShowdown/
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp target/release/spire-showdown-bridge.exe ../package/SpireShowdown/
+          else
+            cp target/release/spire-showdown-bridge ../package/SpireShowdown/
+            chmod +x ../package/SpireShowdown/spire-showdown-bridge
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spire-showdown-mod-${{ runner.os }}-x86_64
+          path: package/SpireShowdown
+          if-no-files-found: error
+          retention-days: 30
