@@ -1,0 +1,148 @@
+name: patched-slippi-build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: patched-slippi-build
+  cancel-in-progress: false
+
+env:
+  ISHIIRUKA_REVISION: 60f7b63496fb6ec7b9180a04f16f3edc0ad89fe2
+  GAME_CODE_REVISION: fcf47f10dc244152c2ebaa3a9dec142ea42243b7
+
+jobs:
+  bazzite:
+    name: Bazzite / Linux AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare pinned patched sources
+        shell: bash
+        run: |
+          git clone https://github.com/project-slippi/Ishiiruka.git slippi
+          git -C slippi checkout "$ISHIIRUKA_REVISION"
+          git -C slippi submodule update --init --recursive
+          git -C slippi apply "$GITHUB_WORKSPACE/slippi-patch/0001-spire-duel-control.patch"
+
+          git clone https://github.com/project-slippi/slippi-ssbm-asm.git game-code
+          git -C game-code checkout "$GAME_CODE_REVISION"
+          git -C game-code apply "$GITHUB_WORKSPACE/slippi-patch/0002-spire-duel-autoboot.patch"
+          cp game-code/Output/Netplay/GALE01r2.ini slippi/Data/Sys/GameSettings/
+          cp game-code/Output/Netplay/GALJ01r2.ini slippi/Data/Sys/GameSettings/
+
+      - name: Install native dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            cmake pkg-config git wget zip libao-dev libasound2-dev \
+            libavcodec-dev libavformat-dev libbluetooth-dev libenet-dev \
+            libgtk2.0-dev liblzo2-dev libminiupnpc-dev libopenal-dev \
+            libpulse-dev libreadline-dev libsfml-dev libsoil-dev \
+            libsoundtouch-dev libswscale-dev libusb-1.0-0-dev \
+            libwebkit2gtk-4.0-dev libxext-dev libxrandr-dev portaudio19-dev \
+            zlib1g-dev libudev-dev libevdev-dev libmbedtls-dev \
+            libcurl4-openssl-dev libegl1-mesa-dev libpng-dev \
+            qtbase5-private-dev libxxf86vm-dev x11proto-xinerama-dev libfuse2
+
+      - id: rust-version
+        name: Read pinned Rust version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^channel = "\(.*\)"/\1/p' slippi/Externals/SlippiRustExtensions/rust-toolchain.toml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ steps.rust-version.outputs.version }}
+          rustflags: ""
+
+      - name: Build patched Slippi
+        working-directory: slippi
+        shell: bash
+        run: ./build-linux.sh netplay
+
+      - name: Build AppImage
+        working-directory: slippi
+        shell: bash
+        run: ./build-appimage.sh netplay
+
+      - name: Name artifact
+        shell: bash
+        run: mv slippi/Slippi_Online-x86_64.AppImage Spire-Showdown-Slippi-Bazzite-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spire-showdown-slippi-bazzite-x86_64
+          path: Spire-Showdown-Slippi-Bazzite-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    name: Windows x86_64
+    runs-on: windows-2022
+    env:
+      DXSDK_DIR: C:\Program Files (x86)\Microsoft DirectX SDK (June 2010)\
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare pinned patched sources
+        shell: bash
+        run: |
+          git clone https://github.com/project-slippi/Ishiiruka.git slippi
+          git -C slippi checkout "$ISHIIRUKA_REVISION"
+          git -C slippi submodule update --init --recursive
+          git -C slippi apply "$GITHUB_WORKSPACE/slippi-patch/0001-spire-duel-control.patch"
+
+          git clone https://github.com/project-slippi/slippi-ssbm-asm.git game-code
+          git -C game-code checkout "$GAME_CODE_REVISION"
+          git -C game-code apply "$GITHUB_WORKSPACE/slippi-patch/0002-spire-duel-autoboot.patch"
+          cp game-code/Output/Netplay/GALE01r2.ini slippi/Data/Sys/GameSettings/
+          cp game-code/Output/Netplay/GALJ01r2.ini slippi/Data/Sys/GameSettings/
+
+      - id: rust-version
+        name: Read pinned Rust version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^channel = "\(.*\)"/\1/p' slippi/Externals/SlippiRustExtensions/rust-toolchain.toml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ steps.rust-version.outputs.version }}
+          rustflags: ""
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Remove conflicting Visual C++ redistributables
+        shell: cmd
+        run: |
+          MsiExec.exe /passive /X{F0C3E5D1-1ADE-321E-8167-68EF0DE699A5}
+          MsiExec.exe /passive /X{1D8E6291-B0D5-35EC-8441-6616F567A0F7}
+
+      - name: Install DirectX SDK
+        shell: powershell
+        run: choco install directx-sdk --yes --no-progress
+
+      - name: Build patched Slippi
+        shell: cmd
+        run: msbuild /m /p:Configuration=Release /p:Platform=x64 slippi\Source\Dolphin.sln
+
+      - name: Package portable build
+        shell: powershell
+        run: |
+          Copy-Item -Recurse -Force slippi\Data\Sys slippi\Binary\x64\Sys
+          New-Item -ItemType File -Force slippi\Binary\x64\portable.txt
+          Compress-Archive -Path slippi\Binary\x64\* -DestinationPath Spire-Showdown-Slippi-Windows-x86_64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spire-showdown-slippi-windows-x86_64
+          path: Spire-Showdown-Slippi-Windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 30

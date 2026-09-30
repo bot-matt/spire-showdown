@@ -58,6 +58,10 @@ On Bazzite, add `--display-driver x11` to Slay the Spire 2's Steam launch
 options. The embedded Slippi window uses X11/XWayland re-parenting, which is not
 available when the game itself runs as a native Wayland surface.
 
+The manual `patched-slippi-build` GitHub workflow builds pinned, reproducible
+Bazzite AppImage and Windows portable artifacts with both patches applied. It
+is intentionally manual because the upstream emulator builds are large.
+
 ## Bridge quick start
 
 ```bash
