@@ -1,5 +1,5 @@
 diff --git a/Source/Core/Core/ConfigManager.h b/Source/Core/Core/ConfigManager.h
-index f08779f5dc38bee12bfa87ba50dd9f2eee9e5852..befbd10c6e1aa053440e4282e7d2dd392071ff43 100644
+index f08779f..befbd10 100644
 --- a/Source/Core/Core/ConfigManager.h
 +++ b/Source/Core/Core/ConfigManager.h
 @@ -170,6 +170,8 @@ struct SConfig : NonCopyable
@@ -12,7 +12,7 @@ index f08779f5dc38bee12bfa87ba50dd9f2eee9e5852..befbd10c6e1aa053440e4282e7d2dd39
  	bool m_blockingPipes = false;
  	bool m_coutEnabled = false;
 diff --git a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
-index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24edc35141 100644
+index 27c5a5d..bd838ea 100644
 --- a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
 +++ b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
 @@ -10,6 +10,9 @@
@@ -25,7 +25,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  #include <utility> // std::move
  
  #include "Common/CommonPaths.h"
-@@ -199,12 +202,87 @@ CEXISlippi::CEXISlippi()
+@@ -199,12 +202,94 @@ CEXISlippi::CEXISlippi()
  	    0x1F, // Battlefield
  	    0x20, // Final Destination
  	};
@@ -58,21 +58,28 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
 +		return;
 +	}
 +
-+	try
-+	{
-+		spireDuel.duelId = config.at("duel_id").get<std::string>();
-+		spireDuel.opponentConnectCode = config.at("opponent_connect_code").get<std::string>();
-+		spireDuel.localCharacter = config.at("local_character").get<u8>();
-+		spireDuel.remoteCharacter = config.at("remote_character").get<u8>();
-+		spireDuel.stage = config.at("stage").get<u16>();
-+		spireDuel.stocks = config.at("stocks").get<u8>();
-+	}
-+	catch (const std::exception &error)
++	const auto hasString = [&config](const char *key) {
++		const auto value = config.find(key);
++		return value != config.end() && value->is_string();
++	};
++	const auto hasUnsigned = [&config](const char *key) {
++		const auto value = config.find(key);
++		return value != config.end() && value->is_number_unsigned();
++	};
++	if (!hasString("duel_id") || !hasString("opponent_connect_code") || !hasUnsigned("local_character") ||
++	    !hasUnsigned("remote_character") || !hasUnsigned("stage") || !hasUnsigned("stocks"))
 +	{
 +		forcedError = "Spire Showdown duel JSON is missing required fields";
-+		ERROR_LOG(SLIPPI_ONLINE, "%s: %s", forcedError.c_str(), error.what());
++		ERROR_LOG(SLIPPI_ONLINE, "%s", forcedError.c_str());
 +		return;
 +	}
++
++	spireDuel.duelId = config["duel_id"].get<std::string>();
++	spireDuel.opponentConnectCode = config["opponent_connect_code"].get<std::string>();
++	spireDuel.localCharacter = config["local_character"].get<u8>();
++	spireDuel.remoteCharacter = config["remote_character"].get<u8>();
++	spireDuel.stage = config["stage"].get<u16>();
++	spireDuel.stocks = config["stocks"].get<u8>();
 +
 +	const bool safeId = !spireDuel.duelId.empty() && spireDuel.duelId.size() <= 64 &&
 +	                    std::all_of(spireDuel.duelId.begin(), spireDuel.duelId.end(), [](char value) {
@@ -113,7 +120,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  CEXISlippi::~CEXISlippi()
  {
  	u8 empty[1];
-@@ -1921,6 +1999,13 @@ void CEXISlippi::startFindMatch(u8 *payload)
+@@ -1921,6 +2006,13 @@ void CEXISlippi::startFindMatch(u8 *payload)
  	std::string shiftJisCode;
  	shiftJisCode.insert(shiftJisCode.begin(), &payload[1], &payload[1] + 18);
  	shiftJisCode.erase(std::find(shiftJisCode.begin(), shiftJisCode.end(), 0x00), shiftJisCode.end());
@@ -127,7 +134,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  
  	// Log the direct code to file.
  	if (search.mode == SlippiMatchmaking::DIRECT)
-@@ -2393,6 +2478,16 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2393,6 +2485,16 @@ void CEXISlippi::prepareOnlineMatchState()
  		{
  			orderedSelections[rps[i].playerIdx] = &rps[i];
  		}
@@ -144,7 +151,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  
  		// Overwrite selections
  		for (int i = 0; i < overwrite_selections.size(); i++)
-@@ -2570,7 +2665,8 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2570,7 +2672,8 @@ void CEXISlippi::prepareOnlineMatchState()
  		// restored to the defaults. The timer is handled further down, after the mode's default timer is set
  		for (int i = 0; i < 4; i++)
  		{
@@ -154,7 +161,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  
  			u16 *current_health = reinterpret_cast<u16 *>(&onlineMatchBlock[0x70 + i * 0x24]);
  			*current_health = Common::swap16(desync_recovery.state.fighters[i].current_health);
-@@ -2778,7 +2874,14 @@ void CEXISlippi::setMatchSelections(u8 *payload)
+@@ -2778,7 +2881,14 @@ void CEXISlippi::setMatchSelections(u8 *payload)
  	s.alt_stage_mode = payload[8];
  
  	s.isStageSelected = stageSelectOption == 1 || stageSelectOption == 3;
@@ -170,7 +177,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  	{
  		// If stage requested is random, select a random stage
  		s.stageId = getRandomStage();
-@@ -3113,6 +3216,8 @@ void CEXISlippi::handleReportGame(const SlippiExiTypes::ReportGameQuery &query)
+@@ -3113,6 +3223,8 @@ void CEXISlippi::handleReportGame(const SlippiExiTypes::ReportGameQuery &query)
  	u32 gameIndex = query.gameIndex;
  	u32 tiebreakIndex = query.tiebreakIndex;
  	s8 winnerIdx = query.winnerIdx;
@@ -179,7 +186,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  	int stageId = Common::FromBigEndian(*(u16 *)&query.gameInfoBlock[0xE]);
  	u8 gameEndMethod = query.gameEndMethod;
  	s8 lrasInitiator = query.lrasInitiator;
-@@ -3372,6 +3477,12 @@ void CEXISlippi::handleGetRank()
+@@ -3372,6 +3484,12 @@ void CEXISlippi::handleGetRank()
  	m_read_queue.push_back(static_cast<u8>(rank_info.rank_change));
  }
  
@@ -192,7 +199,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  {
  	u8 *memPtr = Memory::GetPointer(_uAddr);
-@@ -3436,6 +3547,16 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
+@@ -3436,6 +3554,16 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  			m_slippiserver->endGame();
  			slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
  			break;
@@ -209,7 +216,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  		case CMD_PREPARE_REPLAY:
  			// log.open("log.txt");
  			prepareGameInfo(&memPtr[bufLoc + 1]);
-@@ -3574,6 +3695,9 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
+@@ -3574,6 +3702,9 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  			slprs_fetch_match_result(slprs_exi_device_ptr, recentMmResult.id.c_str());
  			break;
  		}
@@ -220,7 +227,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24
  			writeToFileAsync(&memPtr[bufLoc], payloadLen + 1, "");
  			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
 diff --git a/Source/Core/Core/HW/EXI_DeviceSlippi.h b/Source/Core/Core/HW/EXI_DeviceSlippi.h
-index c8fdedb2b7bb1f365c08438bdbf3048c6b82371d..54cf48e42b37161f19f21c9b0ec931b8648ed5be 100644
+index c8fdedb..54cf48e 100644
 --- a/Source/Core/Core/HW/EXI_DeviceSlippi.h
 +++ b/Source/Core/Core/HW/EXI_DeviceSlippi.h
 @@ -107,7 +107,8 @@ class CEXISlippi : public IEXIDevice
@@ -273,7 +280,7 @@ index c8fdedb2b7bb1f365c08438bdbf3048c6b82371d..54cf48e42b37161f19f21c9b0ec931b8
  	bool isPlaySessionActive = false;
  
 diff --git a/Source/Core/DolphinWX/Main.cpp b/Source/Core/DolphinWX/Main.cpp
-index c266fb9cc56cecf8d2df9d4763baa3ad2dcb5281..bd16ad4c791bc4a65dc75119c76d777004473dee 100644
+index c266fb9..bd16ad4 100644
 --- a/Source/Core/DolphinWX/Main.cpp
 +++ b/Source/Core/DolphinWX/Main.cpp
 @@ -143,6 +143,8 @@ bool DolphinApp::OnInit()
@@ -303,7 +310,7 @@ index c266fb9cc56cecf8d2df9d4763baa3ad2dcb5281..bd16ad4c791bc4a65dc75119c76d7770
  	m_select_slippi_input = parser.Found("slippi-input", &m_slippi_input_name);
  	m_hide_seekbar = parser.Found("hide-seekbar");
 diff --git a/Source/Core/DolphinWX/Main.h b/Source/Core/DolphinWX/Main.h
-index 99fbabbbc7d144494230c9c4418176d1ca189971..c92f11e9f53432efce4ab9dab638e631d8a9de2a 100644
+index 99fbabb..c92f11e 100644
 --- a/Source/Core/DolphinWX/Main.h
 +++ b/Source/Core/DolphinWX/Main.h
 @@ -60,6 +60,7 @@ private:
