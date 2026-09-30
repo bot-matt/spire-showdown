@@ -15,11 +15,23 @@ public sealed record BridgeEnvelope<T>(
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("payload")] T? Payload = default);
 
-public sealed record BridgeResponse(
-    [property: JsonPropertyName("protocol")] ushort Protocol,
-    [property: JsonPropertyName("request_id")] string RequestId,
-    [property: JsonPropertyName("type")] string Type,
-    [property: JsonExtensionData] Dictionary<string, object>? Data);
+public sealed record BridgeResponse
+{
+    [JsonPropertyName("protocol")]
+    public ushort Protocol { get; init; }
+
+    [JsonPropertyName("request_id")]
+    public string RequestId { get; init; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string Type { get; init; } = string.Empty;
+
+    // System.Text.Json does not allow an extension-data property to bind to a
+    // positional record constructor parameter. Keep it as a normal property so
+    // responses can carry type-specific fields alongside the common envelope.
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Data { get; init; }
+}
 
 public sealed record DuelSpec(
     [property: JsonPropertyName("duel_id")] string DuelId,
@@ -61,7 +73,7 @@ public static class BridgeResponseExtensions
     {
         if (response.Data is null || !response.Data.TryGetValue(key, out var raw))
             return null;
-        return raw is JsonElement element ? element : null;
+        return raw;
     }
 }
 

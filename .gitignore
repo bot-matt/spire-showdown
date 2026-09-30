@@ -13,3 +13,5 @@ obj/
 bridge/config.local.json
 mod/Directory.Build.props
 work/
+.dotnet-cli-home/
+artifacts/
