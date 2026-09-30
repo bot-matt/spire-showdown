@@ -125,6 +125,7 @@ jobs:
       - uses: microsoft/setup-msbuild@v2
 
       - name: Remove conflicting Visual C++ redistributables
+        continue-on-error: true
         shell: cmd
         run: |
           MsiExec.exe /passive /X{F0C3E5D1-1ADE-321E-8167-68EF0DE699A5}
