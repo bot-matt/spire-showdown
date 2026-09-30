@@ -67,6 +67,12 @@ pub enum Response {
     },
     Status {
         state: crate::state::DuelState,
+        duel_id: Option<String>,
+        slippi_pid: Option<u32>,
+    },
+    Started {
+        duel_id: String,
+        slippi_pid: u32,
     },
     Accepted,
     Error {

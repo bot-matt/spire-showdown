@@ -4,8 +4,54 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
+use crate::process::SlippiProcess;
 use crate::protocol::{Envelope, Request, Response, ResponseEnvelope, VERSION};
 use crate::state::{DuelMachine, DuelState};
+use crate::window::{platform_embedder, WindowEmbedder};
+
+struct BridgeRuntime {
+    machine: DuelMachine,
+    discovery: Option<crate::discovery::DiscoveryReport>,
+    slippi: Option<SlippiProcess>,
+    embedder: Box<dyn WindowEmbedder + Send>,
+}
+
+impl BridgeRuntime {
+    fn new() -> Self {
+        Self {
+            machine: DuelMachine::default(),
+            discovery: None,
+            slippi: None,
+            embedder: platform_embedder(),
+        }
+    }
+
+    fn reset_terminal_state(&mut self) {
+        if matches!(
+            self.machine.state(),
+            DuelState::Completed | DuelState::Failed | DuelState::Cancelled
+        ) {
+            let _ = self.machine.transition(DuelState::Idle);
+        }
+    }
+
+    fn stop_slippi(&mut self) -> Result<(), String> {
+        let detach_result = self.embedder.detach();
+        let stop_result = self
+            .slippi
+            .take()
+            .map(|mut process| process.stop())
+            .unwrap_or(Ok(()));
+        match (detach_result, stop_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(detach), Ok(())) => Err(detach),
+            (Ok(()), Err(stop)) => Err(stop),
+            (Err(detach), Err(stop)) => Err(format!(
+                "window detach failed: {detach}; Slippi stop failed: {stop}"
+            )),
+        }
+    }
+}
 
 pub fn serve(port: u16, expected_token: &str) -> Result<()> {
     if expected_token.len() < 12 {
@@ -25,11 +71,11 @@ pub fn serve(port: u16, expected_token: &str) -> Result<()> {
     );
     std::io::stdout().flush()?;
 
-    let machine = Arc::new(Mutex::new(DuelMachine::default()));
+    let runtime = Arc::new(Mutex::new(BridgeRuntime::new()));
     for connection in listener.incoming() {
         match connection {
             Ok(stream) => {
-                if handle_client(stream, expected_token, &machine)? {
+                if handle_client(stream, expected_token, &runtime)? {
                     return Ok(());
                 }
             }
@@ -42,7 +88,7 @@ pub fn serve(port: u16, expected_token: &str) -> Result<()> {
 fn handle_client(
     stream: TcpStream,
     expected_token: &str,
-    machine: &Arc<Mutex<DuelMachine>>,
+    runtime: &Arc<Mutex<BridgeRuntime>>,
 ) -> Result<bool> {
     let reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream);
@@ -72,7 +118,7 @@ fn handle_client(
             ),
             Ok(envelope) => {
                 let shutdown = matches!(envelope.message, Request::Shutdown);
-                let response = dispatch(envelope.message, machine);
+                let response = dispatch(envelope.message, runtime);
                 (envelope.request_id, response, shutdown)
             }
         };
@@ -92,15 +138,16 @@ fn handle_client(
     Ok(false)
 }
 
-fn dispatch(request: Request, machine: &Arc<Mutex<DuelMachine>>) -> Response {
+fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
     match request {
         Request::Hello => Response::Hello {
             bridge_version: env!("CARGO_PKG_VERSION").into(),
             platform: std::env::consts::OS.into(),
         },
         Request::Preflight { slippi, iso } => {
-            let mut guard = machine.lock().expect("duel state lock poisoned");
-            if let Err(message) = guard.transition(DuelState::Preflighting) {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            guard.reset_terminal_state();
+            if let Err(message) = guard.machine.transition(DuelState::Preflighting) {
                 return error_response("invalid_state", message, true);
             }
             let report = crate::discovery::discover(slippi.as_deref(), iso.as_deref());
@@ -109,30 +156,103 @@ fn dispatch(request: Request, machine: &Arc<Mutex<DuelMachine>>) -> Response {
             } else {
                 DuelState::Failed
             };
-            let _ = guard.transition(next);
+            let _ = guard.machine.transition(next);
+            guard.discovery = Some(report.clone());
             Response::Preflight { report }
         }
-        Request::StartDuel { .. } => error_response(
-            "not_implemented",
-            "Slippi launch control is the next hardware-backed milestone",
-            true,
-        ),
-        Request::AttachWindow { .. } => error_response(
-            "not_implemented",
-            "native window attachment requires an active Slippi process",
-            true,
-        ),
-        Request::Status => Response::Status {
-            state: machine.lock().expect("duel state lock poisoned").state(),
-        },
-        Request::CancelDuel { .. } => {
-            let mut guard = machine.lock().expect("duel state lock poisoned");
-            match guard.transition(DuelState::Cancelled) {
+        Request::StartDuel { duel } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            if let Err(message) = guard.machine.transition(DuelState::Launching) {
+                return error_response("invalid_state", message, true);
+            }
+            let Some(report) = guard.discovery.as_ref() else {
+                let _ = guard.machine.transition(DuelState::Failed);
+                return error_response(
+                    "preflight_required",
+                    "run preflight before launching",
+                    true,
+                );
+            };
+            let (Some(slippi), Some(iso)) = (&report.slippi, &report.melee_iso) else {
+                let _ = guard.machine.transition(DuelState::Failed);
+                return error_response("preflight_failed", "Slippi or Melee path is missing", true);
+            };
+            match SlippiProcess::launch(&slippi.path, &iso.path, &duel) {
+                Ok(process) => {
+                    let pid = process.pid();
+                    let duel_id = process.duel_id().to_owned();
+                    guard.slippi = Some(process);
+                    Response::Started {
+                        duel_id,
+                        slippi_pid: pid,
+                    }
+                }
+                Err(message) => {
+                    let _ = guard.machine.transition(DuelState::Failed);
+                    error_response("slippi_launch_failed", message, true)
+                }
+            }
+        }
+        Request::AttachWindow {
+            parent_handle,
+            bounds,
+        } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            let Some(pid) = guard.slippi.as_ref().map(SlippiProcess::pid) else {
+                return error_response("no_active_duel", "Slippi is not running", true);
+            };
+            match guard.embedder.attach(parent_handle, pid, bounds) {
+                Ok(()) => match guard.machine.transition(DuelState::Connecting) {
+                    Ok(()) => Response::Accepted,
+                    Err(message) => error_response("invalid_state", message, true),
+                },
+                Err(message) => error_response("window_attach_failed", message, true),
+            }
+        }
+        Request::Status => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            let exited = guard
+                .slippi
+                .as_mut()
+                .and_then(|process| process.try_wait().ok().flatten());
+            if exited.is_some()
+                && matches!(
+                    guard.machine.state(),
+                    DuelState::Launching | DuelState::Connecting | DuelState::Playing
+                )
+            {
+                let _ = guard.machine.transition(DuelState::Failed);
+            }
+            Response::Status {
+                state: guard.machine.state(),
+                duel_id: guard
+                    .slippi
+                    .as_ref()
+                    .map(|process| process.duel_id().to_owned()),
+                slippi_pid: guard.slippi.as_ref().map(SlippiProcess::pid),
+            }
+        }
+        Request::CancelDuel { duel_id, .. } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            let active_id = guard.slippi.as_ref().map(SlippiProcess::duel_id);
+            if active_id != Some(duel_id.as_str()) {
+                return error_response("duel_id_mismatch", "active duel ID does not match", true);
+            }
+            if let Err(message) = guard.stop_slippi() {
+                return error_response("slippi_stop_failed", message, true);
+            }
+            match guard.machine.transition(DuelState::Cancelled) {
                 Ok(()) => Response::Accepted,
                 Err(message) => error_response("invalid_state", message, true),
             }
         }
-        Request::Shutdown => Response::Accepted,
+        Request::Shutdown => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            match guard.stop_slippi() {
+                Ok(()) => Response::Accepted,
+                Err(message) => error_response("shutdown_failed", message, false),
+            }
+        }
     }
 }
 

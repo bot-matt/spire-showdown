@@ -13,7 +13,7 @@ No game image, Nintendo asset, or Slippi binary is included.
 
 ## Current status
 
-This first vertical-slice scaffold includes:
+The current vertical slice includes:
 
 - a versioned, newline-delimited JSON protocol;
 - an authenticated local bridge server;
@@ -22,7 +22,13 @@ This first vertical-slice scaffold includes:
 - a tested duel lifecycle state machine;
 - a StS2/BaseLib mod shell with an asynchronous bridge client;
 - a validated Harmony interception point for two-player contested relics;
-- platform seams for XWayland and Win32 window embedding.
+- managed Slippi launch, status, cancellation, and shutdown;
+- native X11/XWayland re-parenting on Bazzite;
+- native Win32 child-window embedding with parent/style restoration.
+
+The bridge implementation and tests compile for Linux and Windows. Native
+embedding still needs an end-to-end test with the Godot overlay and a patched
+Slippi build on both operating systems.
 
 The current StS2 public-beta mod compiles against build 24724944 with no
 warnings. Its interception is safely gated off until bridge preflight and duel
