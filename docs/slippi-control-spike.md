@@ -32,16 +32,22 @@ Maintaining this as a narrow patch also gives us reliable one-stock rules and
 deterministic character/stage selection without modifying the user's ordinary
 Slippi configuration.
 
+## Implemented proof
+
+The host-side and injected-game patches are stored in `slippi-patch/`. They load
+the duel JSON, force the supplied Direct code and deterministic selections, set
+one stock, enter Direct mode, and issue the find-opponent request without user
+input. Both patches apply cleanly to their pinned upstream revisions.
+
+The modified game code assembled successfully with all 203 source files and
+generated both US and Japanese Slippi configurations. The host patch also emits
+a sidecar status handshake so StS2 can hide boot and matchmaking, reveal the
+embedded surface at game start, and read the winning port.
+
 ## Remaining proof
 
-The first host-side patch is stored in `slippi-patch/`. It loads the duel JSON,
-forces the supplied Direct code and deterministic selections, and sets one
-stock. The patch applies cleanly to the inspected upstream commit. A local full
-compile is still pending because this Bazzite host does not currently have the
-Slippi CMake toolchain or its uninitialized submodules.
-
-Next, extend the injected Melee menu/EXI protocol so a `--spire-duel` launch
-enters the online scene and issues the first find-opponent request without user
-input. Then build on Bazzite and Windows and confirm an unmodified Slippi client
-can connect to the patched build in both same-platform and mixed-platform
-matches.
+Build the patched Ishiiruka application on Bazzite and Windows, connect two
+machines, and verify the reveal lands on the in-game `READY... GO!` sequence in
+same-platform and mixed-platform matches. A local full Ishiiruka compile is
+still pending because its submodules and CMake build dependencies are not
+installed in this workspace.

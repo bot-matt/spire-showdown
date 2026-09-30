@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  applies-to-pinned-upstream:
+  ishiiruka-patch-applies:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,3 +15,14 @@ jobs:
           git clone --filter=blob:none --no-checkout https://github.com/project-slippi/Ishiiruka.git upstream
           git -C upstream checkout 60f7b63496fb6ec7b9180a04f16f3edc0ad89fe2
           git -C upstream apply --check "$GITHUB_WORKSPACE/slippi-patch/0001-spire-duel-control.patch"
+
+  game-code-patch-applies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check auto-boot patch against inspected game-code revision
+        shell: bash
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/project-slippi/slippi-ssbm-asm.git upstream-asm
+          git -C upstream-asm checkout fcf47f10dc244152c2ebaa3a9dec142ea42243b7
+          git -C upstream-asm apply --check "$GITHUB_WORKSPACE/slippi-patch/0002-spire-duel-autoboot.patch"

@@ -69,6 +69,8 @@ pub enum Response {
         state: crate::state::DuelState,
         duel_id: Option<String>,
         slippi_pid: Option<u32>,
+        slippi_phase: Option<String>,
+        winner_idx: Option<i8>,
     },
     Started {
         duel_id: String,

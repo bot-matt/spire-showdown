@@ -25,6 +25,9 @@ The current vertical slice includes:
 - managed Slippi launch, status, cancellation, and shutdown;
 - native X11/XWayland re-parenting on Bazzite;
 - native Win32 child-window embedding with parent/style restoration.
+- patched Slippi auto-boot into Direct matchmaking with no visible menus;
+- a readiness/result sidecar that keeps the StS2 transition up until Melee is
+  entering the match and reports the winning port afterward.
 
 The bridge implementation and tests compile for Linux and Windows. Native
 embedding still needs an end-to-end test with the Godot overlay and a patched
@@ -35,14 +38,11 @@ warnings. Its interception is safely gated off until bridge preflight and duel
 negotiation exist, so installing this development build preserves vanilla RPS.
 
 Source inspection confirmed stock Slippi has no external control surface for
-automatically entering Direct mode. The next milestone is therefore a narrow
-`--spire-duel` Slippi patch; see `docs/slippi-control-spike.md`. This avoids
-brittle input automation and leaves normal Slippi behavior untouched.
-
-The first patch increment is now in `slippi-patch/`. It accepts and validates
-the duel contract, overrides the Direct code and match selections, and enforces
-one stock. Automatic entry into the injected online menu is still in progress,
-so this is not a playable release yet.
+automatically entering Direct mode. The narrow `--spire-duel` host and
+game-code patches in `slippi-patch/` provide that path without input automation
+and leave normal Slippi launches untouched. The game-code patch builds, but an
+end-to-end two-machine match and the live StS2 overlay are still required, so
+this is not a playable release yet.
 
 ## Bridge quick start
 

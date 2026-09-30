@@ -15,7 +15,12 @@ Core message types:
 - `cancel_duel`
 - `shutdown`
 
+The `status` response includes `slippi_phase`. Attach the Slippi surface inside
+the duel overlay as soon as it exists, but keep the loading animation above it
+through `booting` and `connecting`. Remove that cover only after Slippi reports
+`ready`, immediately before the first game frames. A `completed` status also
+carries `winner_idx`.
+
 The Rust definitions in `bridge/src/protocol.rs` are canonical until a schema
 generator is introduced. The C# records in `mod/SpireShowdown/Protocol.cs`
 mirror the wire names.
-

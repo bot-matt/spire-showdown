@@ -2,7 +2,16 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+use serde::Deserialize;
+
 use crate::protocol::DuelSpec;
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct SlippiDuelStatus {
+    pub duel_id: String,
+    pub phase: String,
+    pub winner_idx: Option<i8>,
+}
 
 pub struct SlippiProcess {
     child: Child,
@@ -66,6 +75,21 @@ impl SlippiProcess {
         &self.duel_id
     }
 
+    pub fn duel_status(&self) -> Result<Option<SlippiDuelStatus>, String> {
+        let path = self.session_dir.join("duel.json.status.json");
+        let encoded = match fs::read(&path) {
+            Ok(value) => value,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("cannot read Slippi duel status: {error}")),
+        };
+        let status: SlippiDuelStatus = serde_json::from_slice(&encoded)
+            .map_err(|error| format!("cannot decode Slippi duel status: {error}"))?;
+        if status.duel_id != self.duel_id {
+            return Err("Slippi duel status ID does not match the active duel".into());
+        }
+        Ok(Some(status))
+    }
+
     pub fn try_wait(&mut self) -> Result<Option<i32>, String> {
         self.child
             .try_wait()
@@ -118,5 +142,14 @@ mod tests {
     fn rejects_path_like_duel_ids() {
         assert!(safe_duel_id("../../escape").is_err());
         assert!(safe_duel_id("").is_err());
+    }
+
+    #[test]
+    fn decodes_ready_status() {
+        let status: SlippiDuelStatus =
+            serde_json::from_slice(br#"{"duel_id":"abc-123","phase":"ready","winner_idx":null}"#)
+                .unwrap();
+        assert_eq!(status.phase, "ready");
+        assert_eq!(status.winner_idx, None);
     }
 }
