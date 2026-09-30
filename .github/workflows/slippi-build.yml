@@ -2,6 +2,11 @@ name: patched-slippi-build
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/slippi-build.yml
+      - slippi-patch/**
 
 permissions:
   contents: read
