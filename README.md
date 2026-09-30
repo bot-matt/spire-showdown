@@ -28,10 +28,10 @@ The current StS2 public-beta mod compiles against build 24724944 with no
 warnings. Its interception is safely gated off until bridge preflight and duel
 negotiation exist, so installing this development build preserves vanilla RPS.
 
-The next hardware-backed spike is to determine whether stock Slippi can enter
-Direct mode automatically. If stock Slippi exposes no usable control surface,
-the bridge will require a small Slippi Dolphin patch rather than brittle input
-automation.
+Source inspection confirmed stock Slippi has no external control surface for
+automatically entering Direct mode. The next milestone is therefore a narrow
+`--spire-duel` Slippi patch; see `docs/slippi-control-spike.md`. This avoids
+brittle input automation and leaves normal Slippi behavior untouched.
 
 ## Bridge quick start
 
