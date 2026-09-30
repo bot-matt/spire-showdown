@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <!-- Override this when Steam is installed in another library. -->
+    <!-- <Sts2Path>D:/SteamLibrary/steamapps/common/Slay the Spire 2</Sts2Path> -->
+  </PropertyGroup>
+</Project>
+

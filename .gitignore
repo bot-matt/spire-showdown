@@ -1,0 +1,15 @@
+target/
+.godot/
+bin/
+obj/
+/.idea/
+/.vscode/
+*.user
+*.suo
+*.pdb
+*.dll
+!dist/**/*.dll
+*.pck
+bridge/config.local.json
+mod/Directory.Build.props
+work/
