@@ -20,29 +20,43 @@ The current vertical slice includes:
 - Linux/Bazzite and Windows Slippi/ISO discovery;
 - preflight diagnostics and ISO fingerprinting;
 - a tested duel lifecycle state machine;
-- a StS2/BaseLib mod shell with an asynchronous bridge client;
+- a StS2/BaseLib runtime that owns the bridge and a full-screen duel transition;
 - a validated Harmony interception point for two-player contested relics;
 - managed Slippi launch, status, cancellation, and shutdown;
 - native X11/XWayland re-parenting on Bazzite;
-- native Win32 child-window embedding with parent/style restoration.
+- native Win32 child-window embedding with parent/style restoration;
 - patched Slippi auto-boot into Direct matchmaking with no visible menus;
 - a readiness/result sidecar that keeps the StS2 transition up until Melee is
-  entering the match and reports the winning port afterward.
+  entering the match and reports the winning port afterward;
+- automatic local Slippi connect-code discovery and reliable code exchange over
+  StS2 multiplayer;
+- deterministic shared random characters/stage and verified local-winner
+  mapping;
+- automatic fallback to the original RPS animation on setup or duel failure.
 
 The bridge implementation and tests compile for Linux and Windows. Native
 embedding still needs an end-to-end test with the Godot overlay and a patched
 Slippi build on both operating systems.
 
 The current StS2 public-beta mod compiles against build 24724944 with no
-warnings. Its interception is safely gated off until bridge preflight and duel
-negotiation exist, so installing this development build preserves vanilla RPS.
+warnings. Its interception is gated on bridge preflight. Missing Slippi, ISO,
+login, peer negotiation, launch, or result data returns to vanilla RPS.
 
 Source inspection confirmed stock Slippi has no external control surface for
 automatically entering Direct mode. The narrow `--spire-duel` host and
 game-code patches in `slippi-patch/` provide that path without input automation
 and leave normal Slippi launches untouched. The game-code patch builds, but an
-end-to-end two-machine match and the live StS2 overlay are still required, so
-this is not a playable release yet.
+end-to-end two-machine match with patched builds is still required, so this is
+not a playable release yet.
+
+At first startup, the mod creates `spire-showdown.json` in the StS2 Godot user
+data directory. Slippi, ISO, and connect code are normally auto-detected. The
+file accepts `slippi_path`, `melee_iso_path`, and `connect_code` overrides when
+automatic discovery cannot find one of them.
+
+On Bazzite, add `--display-driver x11` to Slay the Spire 2's Steam launch
+options. The embedded Slippi window uses X11/XWayland re-parenting, which is not
+available when the game itself runs as a native Wayland surface.
 
 ## Bridge quick start
 

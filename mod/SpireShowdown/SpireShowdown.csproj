@@ -9,6 +9,11 @@
     <Publicize>true</Publicize>
     <GodotDisabledSourceGenerators>GodotPluginsInitializer</GodotDisabledSourceGenerators>
     <NoWarn>$(NoWarn);MSB3270</NoWarn>
+    <BridgeExecutableName Condition="'$(IsLinux)' == 'true'">spire-showdown-bridge</BridgeExecutableName>
+    <BridgeExecutableName Condition="'$(IsLinux)' != 'true'">spire-showdown-bridge.exe</BridgeExecutableName>
+    <BridgeDistribution Condition="'$(IsLinux)' == 'true'">bazzite-x86_64</BridgeDistribution>
+    <BridgeDistribution Condition="'$(IsLinux)' != 'true'">windows-x86_64</BridgeDistribution>
+    <BridgeSourcePath>$(MSBuildProjectDirectory)/../../dist/$(BridgeDistribution)/$(BridgeExecutableName)</BridgeSourcePath>
   </PropertyGroup>
 
   <ItemGroup Condition="Exists('$(Sts2DataDir)')">
@@ -36,5 +41,7 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
     <Copy SourceFiles="$(AssemblyName).json" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
+    <Copy SourceFiles="$(BridgeSourcePath)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/"
+          Condition="Exists('$(BridgeSourcePath)')" />
   </Target>
 </Project>

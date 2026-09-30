@@ -15,14 +15,17 @@ internal static class ContestedRelicHook
 {
     [HarmonyPrefix]
     private static bool BeforeDoFight(
+        NHandImageCollection __instance,
         RelicPickingResult result,
         NTreasureRoomRelicHolder holder,
         ref Task __result)
     {
-        if (result.fight?.playersInvolved.Count != 2 || !DuelRuntime.CanStart)
+        if (DuelRuntime.BypassHook
+            || result.fight?.playersInvolved.Count != 2
+            || !DuelRuntime.CanStart)
             return true;
 
-        __result = DuelRuntime.RunAsync(result, holder);
+        __result = DuelRuntime.RunAsync(__instance, result, holder);
         return false;
     }
 }

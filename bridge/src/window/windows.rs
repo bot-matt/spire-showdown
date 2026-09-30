@@ -6,8 +6,8 @@ use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetParent, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible,
-    SetParent, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOZORDER, WS_CAPTION, WS_CHILD, WS_POPUP, WS_THICKFRAME,
+    SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_STYLE, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WS_CAPTION, WS_CHILD, WS_POPUP, WS_THICKFRAME,
 };
 
 use super::WindowEmbedder;
@@ -15,14 +15,18 @@ use crate::protocol::Bounds;
 
 #[derive(Default)]
 pub struct WindowsEmbedder {
+    prepared: Option<PreparedWindow>,
     attached: Option<AttachedWindow>,
 }
 
-struct AttachedWindow {
+struct PreparedWindow {
     child: usize,
     original_parent: usize,
     original_style: isize,
+    was_visible: bool,
 }
+
+type AttachedWindow = PreparedWindow;
 
 struct FindContext {
     pid: u32,
@@ -68,18 +72,48 @@ impl WindowsEmbedder {
 }
 
 impl WindowEmbedder for WindowsEmbedder {
-    fn attach(&mut self, parent_handle: u64, child_pid: u32, bounds: Bounds) -> Result<(), String> {
+    fn prepare(&mut self, child_pid: u32) -> Result<(), String> {
         self.detach()?;
+        let child = Self::find_window(child_pid, Duration::from_secs(10))?;
+        unsafe {
+            let prepared = PreparedWindow {
+                child: child as usize,
+                original_parent: GetParent(child) as usize,
+                original_style: GetWindowLongPtrW(child, GWL_STYLE),
+                was_visible: IsWindowVisible(child) != 0,
+            };
+            ShowWindow(child, SW_HIDE);
+            self.prepared = Some(prepared);
+        }
+        Ok(())
+    }
+
+    fn attach(&mut self, parent_handle: u64, child_pid: u32, bounds: Bounds) -> Result<(), String> {
+        if self.attached.is_some() {
+            self.detach()?;
+        }
         let parent = parent_handle as usize as HWND;
         if parent.is_null() {
             return Err("Godot supplied an empty Win32 parent handle".into());
         }
-        let child = Self::find_window(child_pid, Duration::from_secs(10))?;
+        let prepared = match self.prepared.take() {
+            Some(value) => value,
+            None => {
+                let child = Self::find_window(child_pid, Duration::from_secs(10))?;
+                unsafe {
+                    PreparedWindow {
+                        child: child as usize,
+                        original_parent: GetParent(child) as usize,
+                        original_style: GetWindowLongPtrW(child, GWL_STYLE),
+                        was_visible: IsWindowVisible(child) != 0,
+                    }
+                }
+            }
+        };
+        let child = prepared.child as HWND;
         unsafe {
-            let original_parent = GetParent(child);
-            let original_style = GetWindowLongPtrW(child, GWL_STYLE);
-            let style =
-                (original_style as u32 & !(WS_POPUP | WS_CAPTION | WS_THICKFRAME)) | WS_CHILD;
+            let style = (prepared.original_style as u32 & !(WS_POPUP | WS_CAPTION | WS_THICKFRAME))
+                | WS_CHILD;
             SetWindowLongPtrW(child, GWL_STYLE, style as isize);
             SetParent(child, parent);
             if SetWindowPos(
@@ -92,15 +126,15 @@ impl WindowEmbedder for WindowsEmbedder {
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             ) == 0
             {
-                SetParent(child, original_parent);
-                SetWindowLongPtrW(child, GWL_STYLE, original_style);
+                SetParent(child, prepared.original_parent as HWND);
+                SetWindowLongPtrW(child, GWL_STYLE, prepared.original_style);
+                if prepared.was_visible {
+                    ShowWindow(child, SW_SHOW);
+                }
                 return Err("SetWindowPos failed while embedding Slippi".into());
             }
-            self.attached = Some(AttachedWindow {
-                child: child as usize,
-                original_parent: original_parent as usize,
-                original_style,
-            });
+            ShowWindow(child, SW_SHOW);
+            self.attached = Some(prepared);
         }
         Ok(())
     }
@@ -120,8 +154,23 @@ impl WindowEmbedder for WindowsEmbedder {
                     0,
                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
                 );
+                if attached.was_visible {
+                    ShowWindow(child, SW_SHOW);
+                }
+            }
+        }
+        if let Some(prepared) = self.prepared.take() {
+            unsafe {
+                if prepared.was_visible {
+                    ShowWindow(prepared.child as HWND, SW_SHOW);
+                }
             }
         }
         Ok(())
+    }
+
+    fn forget(&mut self) {
+        self.prepared = None;
+        self.attached = None;
     }
 }

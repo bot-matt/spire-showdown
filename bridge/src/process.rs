@@ -11,6 +11,7 @@ pub struct SlippiDuelStatus {
     pub duel_id: String,
     pub phase: String,
     pub winner_idx: Option<i8>,
+    pub local_won: Option<bool>,
 }
 
 pub struct SlippiProcess {
@@ -82,8 +83,13 @@ impl SlippiProcess {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(format!("cannot read Slippi duel status: {error}")),
         };
-        let status: SlippiDuelStatus = serde_json::from_slice(&encoded)
-            .map_err(|error| format!("cannot decode Slippi duel status: {error}"))?;
+        let status: SlippiDuelStatus = match serde_json::from_slice(&encoded) {
+            Ok(status) => status,
+            // Slippi replaces this tiny sidecar in place. A poll can land after
+            // truncation but before the complete JSON has reached the file.
+            Err(error) if error.is_eof() => return Ok(None),
+            Err(error) => return Err(format!("cannot decode Slippi duel status: {error}")),
+        };
         if status.duel_id != self.duel_id {
             return Err("Slippi duel status ID does not match the active duel".into());
         }
@@ -146,10 +152,12 @@ mod tests {
 
     #[test]
     fn decodes_ready_status() {
-        let status: SlippiDuelStatus =
-            serde_json::from_slice(br#"{"duel_id":"abc-123","phase":"ready","winner_idx":null}"#)
-                .unwrap();
+        let status: SlippiDuelStatus = serde_json::from_slice(
+            br#"{"duel_id":"abc-123","phase":"ready","winner_idx":null,"local_won":null}"#,
+        )
+        .unwrap();
         assert_eq!(status.phase, "ready");
         assert_eq!(status.winner_idx, None);
+        assert_eq!(status.local_won, None);
     }
 }

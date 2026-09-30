@@ -6,8 +6,10 @@ mod linux;
 mod windows;
 
 pub trait WindowEmbedder {
+    fn prepare(&mut self, child_pid: u32) -> Result<(), String>;
     fn attach(&mut self, parent_handle: u64, child_pid: u32, bounds: Bounds) -> Result<(), String>;
     fn detach(&mut self) -> Result<(), String>;
+    fn forget(&mut self);
 }
 
 #[cfg(target_os = "linux")]
@@ -34,6 +36,10 @@ pub fn platform_embedder() -> Box<dyn WindowEmbedder + Send> {
 struct UnavailableEmbedder(String);
 
 impl WindowEmbedder for UnavailableEmbedder {
+    fn prepare(&mut self, _child_pid: u32) -> Result<(), String> {
+        Err(self.0.clone())
+    }
+
     fn attach(
         &mut self,
         _parent_handle: u64,
@@ -46,4 +52,6 @@ impl WindowEmbedder for UnavailableEmbedder {
     fn detach(&mut self) -> Result<(), String> {
         Ok(())
     }
+
+    fn forget(&mut self) {}
 }

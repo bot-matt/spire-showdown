@@ -30,6 +30,7 @@ pub struct DiscoveryReport {
     pub platform: String,
     pub slippi: Option<LocatedPath>,
     pub melee_iso: Option<LocatedPath>,
+    pub connect_code: Option<String>,
     pub iso: Option<IsoReport>,
     pub problems: Vec<String>,
 }
@@ -37,6 +38,7 @@ pub struct DiscoveryReport {
 pub fn discover(explicit_slippi: Option<&Path>, explicit_iso: Option<&Path>) -> DiscoveryReport {
     let slippi = locate_slippi(explicit_slippi);
     let melee_iso = locate_iso(explicit_iso);
+    let connect_code = locate_connect_code();
     let mut problems = Vec::new();
 
     if slippi.is_none() {
@@ -60,9 +62,33 @@ pub fn discover(explicit_slippi: Option<&Path>, explicit_iso: Option<&Path>) -> 
         platform: env::consts::OS.into(),
         slippi,
         melee_iso,
+        connect_code,
         iso,
         problems,
     }
+}
+
+fn locate_connect_code() -> Option<String> {
+    for path in slippi_user_paths() {
+        let Ok(contents) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(user) = serde_json::from_str::<serde_json::Value>(&contents) else {
+            continue;
+        };
+        let Some(code) = user.get("connectCode").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let code = code.trim();
+        if valid_connect_code(code) {
+            return Some(code.to_owned());
+        }
+    }
+    None
+}
+
+fn valid_connect_code(code: &str) -> bool {
+    !code.is_empty() && code.len() <= 9 && code.contains('#')
 }
 
 fn locate_slippi(explicit: Option<&Path>) -> Option<LocatedPath> {
@@ -288,6 +314,23 @@ fn slippi_roots() -> Vec<PathBuf> {
     roots
 }
 
+fn slippi_user_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if cfg!(windows) {
+        if let Some(value) = env::var_os("APPDATA") {
+            let root = PathBuf::from(value);
+            paths.push(root.join("SlippiOnline/Slippi/user.json"));
+            paths.push(root.join("slippi-dolphin/netplay/Slippi/user.json"));
+            paths.push(root.join("slippi-dolphin/netplay-beta/Slippi/user.json"));
+        }
+    } else if let Some(home) = home_dir() {
+        paths.push(home.join(".config/SlippiOnline/Slippi/user.json"));
+        paths.push(home.join(".config/slippi-dolphin/netplay/Slippi/user.json"));
+        paths.push(home.join(".config/slippi-dolphin/netplay-beta/Slippi/user.json"));
+    }
+    paths
+}
+
 fn iso_roots() -> Vec<PathBuf> {
     let Some(home) = home_dir() else {
         return Vec::new();
@@ -319,5 +362,12 @@ mod tests {
         let mut file = std::fs::File::create(&iso).unwrap();
         file.write_all(b"OTHER1test").unwrap();
         assert!(!is_melee_image(&iso));
+    }
+
+    #[test]
+    fn validates_connect_code_shape() {
+        assert!(valid_connect_code("ABCD#123"));
+        assert!(!valid_connect_code("missing"));
+        assert!(!valid_connect_code("TOOLONG#123"));
     }
 }

@@ -29,6 +29,9 @@ pub enum Request {
         bounds: Bounds,
     },
     Status,
+    FinishDuel {
+        duel_id: String,
+    },
     CancelDuel {
         duel_id: String,
         reason: String,
@@ -71,6 +74,7 @@ pub enum Response {
         slippi_pid: Option<u32>,
         slippi_phase: Option<String>,
         winner_idx: Option<i8>,
+        local_won: Option<bool>,
     },
     Started {
         duel_id: String,

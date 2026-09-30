@@ -12,7 +12,7 @@ index f08779f5dc38bee12bfa87ba50dd9f2eee9e5852..befbd10c6e1aa053440e4282e7d2dd39
  	bool m_blockingPipes = false;
  	bool m_coutEnabled = false;
 diff --git a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
-index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8f603579e 100644
+index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..65cfd005fa902e94217d95c29a0f2b24edc35141 100644
 --- a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
 +++ b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
 @@ -10,6 +10,9 @@
@@ -25,7 +25,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  #include <utility> // std::move
  
  #include "Common/CommonPaths.h"
-@@ -199,12 +202,85 @@ CEXISlippi::CEXISlippi()
+@@ -199,12 +202,87 @@ CEXISlippi::CEXISlippi()
  	    0x1F, // Battlefield
  	    0x20, // Final Destination
  	};
@@ -102,8 +102,10 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
 +		return;
 +
 +	const auto winner = winnerIdx < 0 ? "null" : std::to_string(winnerIdx);
-+	const auto status = StringFromFormat("{\"duel_id\":\"%s\",\"phase\":\"%s\",\"winner_idx\":%s}\n",
-+	                                     spireDuel.duelId.c_str(), phase.c_str(), winner.c_str());
++	const auto localWon = winnerIdx < 0 ? "null" : (winnerIdx == localPlayerIndex ? "true" : "false");
++	const auto status = StringFromFormat(
++	    "{\"duel_id\":\"%s\",\"phase\":\"%s\",\"winner_idx\":%s,\"local_won\":%s}\n",
++	    spireDuel.duelId.c_str(), phase.c_str(), winner.c_str(), localWon);
 +	if (!File::WriteStringToFile(status, spireDuel.statusPath))
 +		ERROR_LOG(SLIPPI_ONLINE, "Could not write Spire Showdown status: %s", spireDuel.statusPath.c_str());
 +}
@@ -111,7 +113,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  CEXISlippi::~CEXISlippi()
  {
  	u8 empty[1];
-@@ -1921,6 +1997,13 @@ void CEXISlippi::startFindMatch(u8 *payload)
+@@ -1921,6 +1999,13 @@ void CEXISlippi::startFindMatch(u8 *payload)
  	std::string shiftJisCode;
  	shiftJisCode.insert(shiftJisCode.begin(), &payload[1], &payload[1] + 18);
  	shiftJisCode.erase(std::find(shiftJisCode.begin(), shiftJisCode.end(), 0x00), shiftJisCode.end());
@@ -125,7 +127,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  
  	// Log the direct code to file.
  	if (search.mode == SlippiMatchmaking::DIRECT)
-@@ -2393,6 +2476,16 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2393,6 +2478,16 @@ void CEXISlippi::prepareOnlineMatchState()
  		{
  			orderedSelections[rps[i].playerIdx] = &rps[i];
  		}
@@ -142,7 +144,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  
  		// Overwrite selections
  		for (int i = 0; i < overwrite_selections.size(); i++)
-@@ -2570,7 +2663,8 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2570,7 +2665,8 @@ void CEXISlippi::prepareOnlineMatchState()
  		// restored to the defaults. The timer is handled further down, after the mode's default timer is set
  		for (int i = 0; i < 4; i++)
  		{
@@ -152,7 +154,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  
  			u16 *current_health = reinterpret_cast<u16 *>(&onlineMatchBlock[0x70 + i * 0x24]);
  			*current_health = Common::swap16(desync_recovery.state.fighters[i].current_health);
-@@ -2778,7 +2872,14 @@ void CEXISlippi::setMatchSelections(u8 *payload)
+@@ -2778,7 +2874,14 @@ void CEXISlippi::setMatchSelections(u8 *payload)
  	s.alt_stage_mode = payload[8];
  
  	s.isStageSelected = stageSelectOption == 1 || stageSelectOption == 3;
@@ -168,7 +170,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  	{
  		// If stage requested is random, select a random stage
  		s.stageId = getRandomStage();
-@@ -3113,6 +3214,8 @@ void CEXISlippi::handleReportGame(const SlippiExiTypes::ReportGameQuery &query)
+@@ -3113,6 +3216,8 @@ void CEXISlippi::handleReportGame(const SlippiExiTypes::ReportGameQuery &query)
  	u32 gameIndex = query.gameIndex;
  	u32 tiebreakIndex = query.tiebreakIndex;
  	s8 winnerIdx = query.winnerIdx;
@@ -177,7 +179,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  	int stageId = Common::FromBigEndian(*(u16 *)&query.gameInfoBlock[0xE]);
  	u8 gameEndMethod = query.gameEndMethod;
  	s8 lrasInitiator = query.lrasInitiator;
-@@ -3372,6 +3475,12 @@ void CEXISlippi::handleGetRank()
+@@ -3372,6 +3477,12 @@ void CEXISlippi::handleGetRank()
  	m_read_queue.push_back(static_cast<u8>(rank_info.rank_change));
  }
  
@@ -190,7 +192,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  {
  	u8 *memPtr = Memory::GetPointer(_uAddr);
-@@ -3436,6 +3545,16 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
+@@ -3436,6 +3547,16 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  			m_slippiserver->endGame();
  			slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
  			break;
@@ -207,7 +209,7 @@ index 27c5a5da56a603988fd6c304b3bd16935cdbed2a..1577993d82b84456a687f485d5ef43a8
  		case CMD_PREPARE_REPLAY:
  			// log.open("log.txt");
  			prepareGameInfo(&memPtr[bufLoc + 1]);
-@@ -3574,6 +3693,9 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
+@@ -3574,6 +3695,9 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  			slprs_fetch_match_result(slprs_exi_device_ptr, recentMmResult.id.c_str());
  			break;
  		}

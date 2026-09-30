@@ -14,13 +14,17 @@ use crate::protocol::Bounds;
 pub struct LinuxEmbedder {
     connection: RustConnection,
     screen_num: usize,
+    prepared: Option<PreparedWindow>,
     attached: Option<AttachedWindow>,
 }
 
-struct AttachedWindow {
+struct PreparedWindow {
     child: Window,
     original_parent: Window,
+    was_viewable: bool,
 }
+
+type AttachedWindow = PreparedWindow;
 
 impl LinuxEmbedder {
     pub fn new() -> Result<Self, String> {
@@ -29,6 +33,7 @@ impl LinuxEmbedder {
         Ok(Self {
             connection,
             screen_num,
+            prepared: None,
             attached: None,
         })
     }
@@ -119,10 +124,8 @@ impl LinuxEmbedder {
 }
 
 impl WindowEmbedder for LinuxEmbedder {
-    fn attach(&mut self, parent_handle: u64, child_pid: u32, bounds: Bounds) -> Result<(), String> {
+    fn prepare(&mut self, child_pid: u32) -> Result<(), String> {
         self.detach()?;
-        let parent = u32::try_from(parent_handle)
-            .map_err(|_| "Godot supplied an invalid X11 parent handle".to_string())?;
         let child = self.find_window_for_pid(child_pid, Duration::from_secs(10))?;
         let original_parent = self
             .connection
@@ -131,6 +134,49 @@ impl WindowEmbedder for LinuxEmbedder {
             .reply()
             .map_err(display_error)?
             .parent;
+        let was_viewable = self
+            .connection
+            .get_window_attributes(child)
+            .map_err(display_error)?
+            .reply()
+            .map_err(display_error)?
+            .map_state
+            == MapState::VIEWABLE;
+        self.connection.unmap_window(child).map_err(display_error)?;
+        self.connection.flush().map_err(display_error)?;
+        self.prepared = Some(PreparedWindow {
+            child,
+            original_parent,
+            was_viewable,
+        });
+        Ok(())
+    }
+
+    fn attach(&mut self, parent_handle: u64, child_pid: u32, bounds: Bounds) -> Result<(), String> {
+        if self.attached.is_some() {
+            self.detach()?;
+        }
+        let parent = u32::try_from(parent_handle)
+            .map_err(|_| "Godot supplied an invalid X11 parent handle".to_string())?;
+        let prepared = match self.prepared.take() {
+            Some(value) => value,
+            None => {
+                let child = self.find_window_for_pid(child_pid, Duration::from_secs(10))?;
+                let original_parent = self
+                    .connection
+                    .query_tree(child)
+                    .map_err(display_error)?
+                    .reply()
+                    .map_err(display_error)?
+                    .parent;
+                PreparedWindow {
+                    child,
+                    original_parent,
+                    was_viewable: true,
+                }
+            }
+        };
+        let child = prepared.child;
         self.remove_decorations(child)?;
         self.connection
             .reparent_window(child, parent, bounds.x as i16, bounds.y as i16)
@@ -148,10 +194,7 @@ impl WindowEmbedder for LinuxEmbedder {
             .map_err(display_error)?;
         self.connection.map_window(child).map_err(display_error)?;
         self.connection.flush().map_err(display_error)?;
-        self.attached = Some(AttachedWindow {
-            child,
-            original_parent,
-        });
+        self.attached = Some(prepared);
         Ok(())
     }
 
@@ -160,9 +203,27 @@ impl WindowEmbedder for LinuxEmbedder {
             self.connection
                 .reparent_window(attached.child, attached.original_parent, 0, 0)
                 .map_err(display_error)?;
+            if attached.was_viewable {
+                self.connection
+                    .map_window(attached.child)
+                    .map_err(display_error)?;
+            }
+            self.connection.flush().map_err(display_error)?;
+        }
+        if let Some(prepared) = self.prepared.take() {
+            if prepared.was_viewable {
+                self.connection
+                    .map_window(prepared.child)
+                    .map_err(display_error)?;
+            }
             self.connection.flush().map_err(display_error)?;
         }
         Ok(())
+    }
+
+    fn forget(&mut self) {
+        self.prepared = None;
+        self.attached = None;
     }
 }
 

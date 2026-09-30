@@ -19,7 +19,19 @@ public partial class MainFile : Node
         var assembly = Assembly.GetExecutingAssembly();
         var harmony = new Harmony(ModId);
         harmony.PatchAll(assembly);
-        Logger.Info("Spire Showdown initialized; contested-relic hook awaits game-build validation.");
+        _ = InitializeRuntimeAsync();
+        Logger.Info("Spire Showdown initialized; bridge preflight is running.");
+    }
+
+    private static async Task InitializeRuntimeAsync()
+    {
+        try
+        {
+            await DuelRuntime.InitializeAsync();
+        }
+        catch (Exception error)
+        {
+            Logger.Warn($"Spire Showdown is unavailable; vanilla RPS remains active: {error.Message}");
+        }
     }
 }
-

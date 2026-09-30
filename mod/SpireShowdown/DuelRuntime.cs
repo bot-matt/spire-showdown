@@ -1,3 +1,10 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Godot;
+using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
 using MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic;
 
@@ -5,24 +12,237 @@ namespace SpireShowdown;
 
 internal static class DuelRuntime
 {
-    /// <summary>
-    /// Remains false until the bridge has passed preflight and both contestants
-    /// have negotiated a duel. This makes an installed development build fall
-    /// back to vanilla RPS instead of blocking a run.
-    /// </summary>
-    public static bool CanStart => false;
+    private static readonly AsyncLocal<bool> Bypass = new();
+    private static readonly SemaphoreSlim DuelLock = new(1, 1);
+    private static BridgeHost? _bridge;
+    private static DuelOverlay? _overlay;
+    private static string? _localConnectCode;
 
-    public static Task RunAsync(
+    public static bool BypassHook => Bypass.Value;
+    public static bool CanStart { get; private set; }
+
+    public static async Task InitializeAsync()
+    {
+        var (settings, settingsPath) = SpireShowdownSettings.Load();
+        var tree = Engine.GetMainLoop() as SceneTree
+            ?? throw new InvalidOperationException("Godot scene tree is unavailable");
+        if (OperatingSystem.IsLinux()
+            && !DisplayServer.GetName().Equals("x11", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "Bazzite window embedding requires StS2 to use X11/XWayland; " +
+                "add --display-driver x11 to the game's Steam launch options.");
+        _overlay = new DuelOverlay { Name = "SpireShowdownOverlay" };
+        tree.Root.AddChild(_overlay);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        _bridge = await BridgeHost.StartAsync(timeout.Token);
+        var preflight = await _bridge.Client.SendAsync(
+            "preflight",
+            new
+            {
+                slippi = NullIfBlank(settings.SlippiPath),
+                iso = NullIfBlank(settings.MeleeIsoPath)
+            },
+            timeout.Token);
+        preflight.Require("preflight");
+        var report = preflight.Element("report")
+            ?? throw new InvalidDataException("Bridge omitted its preflight report.");
+        if (!report.GetProperty("ready").GetBoolean())
+            throw new InvalidOperationException(DescribePreflight(report));
+        _localConnectCode = settings.ConnectCode?.Trim();
+        if (!IsConnectCode(_localConnectCode)
+            && report.TryGetProperty("connect_code", out var discoveredCode))
+            _localConnectCode = discoveredCode.GetString();
+        if (!IsConnectCode(_localConnectCode))
+            throw new InvalidOperationException($"set connect_code in {settingsPath}");
+
+        CanStart = true;
+        MainFile.Logger.Info("Spire Showdown bridge preflight passed; two-player relic duels are enabled.");
+    }
+
+    public static async Task RunAsync(
+        NHandImageCollection hands,
         RelicPickingResult result,
         NTreasureRoomRelicHolder holder)
     {
-        // The bridge-backed implementation will:
-        // 1. show the Godot duel overlay;
-        // 2. await Slippi completion without blocking StS2 networking;
-        // 3. map the winning StS2 net ID back to result.fight.playersInvolved;
-        // 4. assign result.player and clear the RPS rounds;
-        // 5. close the overlay and let AnimateRelicAwards award the relic.
-        throw new InvalidOperationException("DuelRuntime cannot run before bridge preflight.");
+        if (_bridge is null || _overlay is null || _localConnectCode is null)
+        {
+            await InvokeVanillaAsync(hands, result, holder);
+            return;
+        }
+
+        await DuelLock.WaitAsync();
+        string? duelId = null;
+        var resultCommitted = false;
+        try
+        {
+            _overlay.ShowLoading(result);
+            var (duelTemplate, localPlayer, remotePlayer) = CreateDuel(result);
+            _overlay.SetStatus("Waiting for the other contender");
+            using var negotiationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var opponentCode = await DuelNegotiator.ExchangeConnectCodesAsync(
+                duelTemplate.DuelId,
+                _localConnectCode,
+                remotePlayer.NetId,
+                negotiationTimeout.Token);
+            var duel = duelTemplate with { OpponentConnectCode = opponentCode };
+            duelId = duel.DuelId;
+
+            var started = await _bridge.Client.SendAsync(
+                "start_duel",
+                new { duel },
+                CancellationToken.None);
+            started.Require("started");
+
+            using var launchTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
+            await WaitForPhaseAsync(_bridge.Client, "ready", launchTimeout.Token);
+
+            var target = _overlay.GetNativeTarget();
+            var attached = await _bridge.Client.SendAsync(
+                "attach_window",
+                new { parent_handle = target.ParentHandle, bounds = target.Bounds },
+                launchTimeout.Token);
+            attached.Require("accepted");
+            _overlay.HideOverlay();
+
+            using var matchTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            var completed = await WaitForPhaseAsync(
+                _bridge.Client,
+                "completed",
+                matchTimeout.Token);
+            var localWon = completed.Boolean("local_won")
+                ?? throw new InvalidDataException("Slippi completed without identifying the local winner.");
+            var winner = localWon ? localPlayer : remotePlayer;
+
+            var finished = await _bridge.Client.SendAsync(
+                "finish_duel",
+                new { duel_id = duelId },
+                CancellationToken.None);
+            finished.Require("accepted");
+
+            result.player = winner;
+            resultCommitted = true;
+            var winnerHand = hands.GetHand(winner.NetId);
+            if (winnerHand is not null)
+                await winnerHand.GrabRelic(holder);
+            foreach (var player in result.fight!.playersInvolved)
+                hands.GetHand(player.NetId)?.SetIsInFight(false);
+        }
+        catch (Exception error)
+        {
+            if (resultCommitted)
+            {
+                MainFile.Logger.Error($"Melee winner was recorded, but relic presentation failed: {error}");
+                foreach (var player in result.fight!.playersInvolved)
+                    hands.GetHand(player.NetId)?.SetIsInFight(false);
+                return;
+            }
+            MainFile.Logger.Error($"Slippi duel failed; returning to vanilla RPS: {error}");
+            if (duelId is not null)
+                await TryCancelAsync(_bridge.Client, duelId);
+            _overlay.HideOverlay();
+            await InvokeVanillaAsync(hands, result, holder);
+        }
+        finally
+        {
+            _overlay.HideOverlay();
+            DuelLock.Release();
+        }
+    }
+
+    private static async Task<BridgeResponse> WaitForPhaseAsync(
+        BridgeClient client,
+        string wanted,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var status = await client.SendAsync<object>("status", null, cancellationToken);
+            status.Require("status");
+            var phase = status.String("slippi_phase");
+            if (wanted == "ready" && _overlay is not null)
+            {
+                _overlay.SetStatus(phase == "connecting"
+                    ? "Connecting contenders"
+                    : "Launching Slippi");
+            }
+            if (phase == wanted)
+                return status;
+            if (phase == "completed" && wanted != "completed")
+                throw new InvalidOperationException("Slippi ended before its window became ready.");
+            await Task.Delay(75, cancellationToken);
+        }
+    }
+
+    private static (DuelSpec Duel, Player Local, Player Remote) CreateDuel(
+        RelicPickingResult result)
+    {
+        var players = result.fight!.playersInvolved.OrderBy(player => player.NetId).ToArray();
+        var material = Encoding.UTF8.GetBytes(
+            $"{players[0].NetId}:{players[1].NetId}:{result.relic.Id}");
+        var hash = SHA256.HashData(material);
+        var seed = BinaryPrimitives.ReadUInt64LittleEndian(hash);
+        var rules = DuelCoordinator.SelectRules(seed, 26);
+        var localNetId = LocalContext.NetId
+            ?? throw new InvalidOperationException("The local multiplayer player ID is unavailable.");
+        var local = players.Single(player => player.NetId == localNetId);
+        var remote = players.Single(player => player != local);
+        var localIsFirst = local == players[0];
+        var duel = new DuelSpec(
+            Convert.ToHexString(hash.AsSpan(0, 12)).ToLowerInvariant(),
+            seed,
+            "",
+            localIsFirst ? rules.FirstCharacter : rules.SecondCharacter,
+            localIsFirst ? rules.SecondCharacter : rules.FirstCharacter,
+            rules.Stage);
+        return (duel, local, remote);
+    }
+
+    private static async Task InvokeVanillaAsync(
+        NHandImageCollection hands,
+        RelicPickingResult result,
+        NTreasureRoomRelicHolder holder)
+    {
+        Bypass.Value = true;
+        try
+        {
+            await hands.DoFight(result, holder);
+        }
+        finally
+        {
+            Bypass.Value = false;
+        }
+    }
+
+    private static async Task TryCancelAsync(BridgeClient client, string duelId)
+    {
+        try
+        {
+            await client.SendAsync(
+                "cancel_duel",
+                new { duel_id = duelId, reason = "local_failure" },
+                CancellationToken.None);
+        }
+        catch
+        {
+            // The original failure is more useful than cleanup noise.
+        }
+    }
+
+    private static bool IsConnectCode(string? value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && value.Length <= 9
+        && value.Contains('#', StringComparison.Ordinal);
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string DescribePreflight(JsonElement report)
+    {
+        if (report.TryGetProperty("problems", out var problems)
+            && problems.ValueKind == JsonValueKind.Array)
+            return string.Join("; ", problems.EnumerateArray().Select(value => value.GetString()));
+        return "Slippi or the Melee ISO was not found";
     }
 }
-

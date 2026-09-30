@@ -38,13 +38,19 @@ impl BridgeRuntime {
     }
 
     fn stop_slippi(&mut self) -> Result<(), String> {
-        let detach_result = self.embedder.detach();
-        self.window_attached = false;
+        let had_process = self.slippi.is_some();
         let stop_result = self
             .slippi
             .take()
             .map(|mut process| process.stop())
             .unwrap_or(Ok(()));
+        let detach_result = if had_process && stop_result.is_ok() {
+            self.embedder.forget();
+            Ok(())
+        } else {
+            self.embedder.detach()
+        };
+        self.window_attached = false;
         match (detach_result, stop_result) {
             (Ok(()), Ok(())) => Ok(()),
             (Err(detach), Ok(())) => Err(detach),
@@ -181,9 +187,14 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                 return error_response("preflight_failed", "Slippi or Melee path is missing", true);
             };
             match SlippiProcess::launch(&slippi.path, &iso.path, &duel) {
-                Ok(process) => {
+                Ok(mut process) => {
                     let pid = process.pid();
                     let duel_id = process.duel_id().to_owned();
+                    if let Err(message) = guard.embedder.prepare(pid) {
+                        let _ = process.stop();
+                        let _ = guard.machine.transition(DuelState::Failed);
+                        return error_response("window_prepare_failed", message, true);
+                    }
                     guard.slippi = Some(process);
                     Response::Started {
                         duel_id,
@@ -242,6 +253,17 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
             if duel_status
                 .as_ref()
                 .is_some_and(|status| status.phase == "completed")
+            {
+                // A one-stock match can theoretically finish between the
+                // attach response and the next status poll. Preserve the state
+                // machine path instead of waiting forever in Connecting.
+                if guard.machine.state() == DuelState::Connecting && guard.window_attached {
+                    let _ = guard.machine.transition(DuelState::Playing);
+                }
+            }
+            if duel_status
+                .as_ref()
+                .is_some_and(|status| status.phase == "completed")
                 && guard.machine.state() == DuelState::Playing
             {
                 let _ = guard.machine.transition(DuelState::Completed);
@@ -266,7 +288,26 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                     .map(|process| process.duel_id().to_owned()),
                 slippi_pid: guard.slippi.as_ref().map(SlippiProcess::pid),
                 slippi_phase: duel_status.as_ref().map(|status| status.phase.clone()),
-                winner_idx: duel_status.and_then(|status| status.winner_idx),
+                winner_idx: duel_status.as_ref().and_then(|status| status.winner_idx),
+                local_won: duel_status.and_then(|status| status.local_won),
+            }
+        }
+        Request::FinishDuel { duel_id } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            let active_id = guard.slippi.as_ref().map(SlippiProcess::duel_id);
+            if active_id != Some(duel_id.as_str()) {
+                return error_response("duel_id_mismatch", "active duel ID does not match", true);
+            }
+            if guard.machine.state() != DuelState::Completed {
+                return error_response(
+                    "duel_not_completed",
+                    "Slippi has not reported a completed duel",
+                    true,
+                );
+            }
+            match guard.stop_slippi() {
+                Ok(()) => Response::Accepted,
+                Err(message) => error_response("slippi_stop_failed", message, true),
             }
         }
         Request::CancelDuel { duel_id, .. } => {

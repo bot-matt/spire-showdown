@@ -18,7 +18,8 @@ Together they implement the automatic-duel control path:
 - jumps directly into Direct mode and starts matchmaking without showing or
   controlling Slippi menus;
 - writes `booting`, `connecting`, `ready`, and `completed` status phases next
-  to the duel contract, including the winning port index at completion.
+  to the duel contract, including the winning port index and whether the local
+  player won at completion.
 
 The bridge embeds the surface behind the StS2 loading transition, then reports
 `ready` when Melee emits its game-info command just before the first match
