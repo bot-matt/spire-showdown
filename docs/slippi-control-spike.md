@@ -34,8 +34,14 @@ Slippi configuration.
 
 ## Remaining proof
 
-Before building distribution binaries, prototype the auto-duel command on
-Bazzite and confirm that an unmodified Slippi client can still connect to the
-patched build. Then build the same patch with the Windows toolchain and repeat
-the mixed-platform test.
+The first host-side patch is stored in `slippi-patch/`. It loads the duel JSON,
+forces the supplied Direct code and deterministic selections, and sets one
+stock. The patch applies cleanly to the inspected upstream commit. A local full
+compile is still pending because this Bazzite host does not currently have the
+Slippi CMake toolchain or its uninitialized submodules.
 
+Next, extend the injected Melee menu/EXI protocol so a `--spire-duel` launch
+enters the online scene and issues the first find-opponent request without user
+input. Then build on Bazzite and Windows and confirm an unmodified Slippi client
+can connect to the patched build in both same-platform and mixed-platform
+matches.

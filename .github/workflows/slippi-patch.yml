@@ -1,0 +1,17 @@
+name: slippi-patch
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  applies-to-pinned-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check patch against inspected Slippi revision
+        shell: bash
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/project-slippi/Ishiiruka.git upstream
+          git -C upstream checkout 60f7b63496fb6ec7b9180a04f16f3edc0ad89fe2
+          git -C upstream apply --check "$GITHUB_WORKSPACE/slippi-patch/0001-spire-duel-control.patch"

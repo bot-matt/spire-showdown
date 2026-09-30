@@ -1,0 +1,170 @@
+diff --git a/Source/Core/Core/ConfigManager.h b/Source/Core/Core/ConfigManager.h
+index f08779f..befbd10 100644
+--- a/Source/Core/Core/ConfigManager.h
++++ b/Source/Core/Core/ConfigManager.h
+@@ -172,2 +172,4 @@ struct SConfig : NonCopyable
+ 	std::string m_slippiLanIp = "";
++	// Set only by --spire-duel. It is intentionally not persisted.
++	std::string m_spireDuelFile = "";
+ 	bool m_meleeUserIniBootstrapped = false;
+diff --git a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
+index 27c5a5d..78baac2 100644
+--- a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
++++ b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
+@@ -12,2 +12,5 @@
+ #include <semver/include/semver200.h>
++#include <algorithm>
++#include <cctype>
++#include <exception>
+ #include <utility> // std::move
+@@ -201,2 +204,3 @@ CEXISlippi::CEXISlippi()
+ 	};
++	loadSpireDuelSettings();
+ 
+@@ -207,2 +211,60 @@ CEXISlippi::CEXISlippi()
+ 
++void CEXISlippi::loadSpireDuelSettings()
++{
++	const auto &path = SConfig::GetInstance().m_spireDuelFile;
++	if (path.empty())
++		return;
++
++	std::string contents;
++	if (!File::ReadFileToString(path, contents))
++	{
++		forcedError = "Spire Showdown could not read its duel file";
++		ERROR_LOG(SLIPPI_ONLINE, "%s: %s", forcedError.c_str(), path.c_str());
++		return;
++	}
++
++	auto config = json::parse(contents, nullptr, false);
++	if (config.is_discarded() || !config.is_object())
++	{
++		forcedError = "Spire Showdown received invalid duel JSON";
++		ERROR_LOG(SLIPPI_ONLINE, "%s", forcedError.c_str());
++		return;
++	}
++
++	try
++	{
++		spireDuel.duelId = config.at("duel_id").get<std::string>();
++		spireDuel.opponentConnectCode = config.at("opponent_connect_code").get<std::string>();
++		spireDuel.localCharacter = config.at("local_character").get<u8>();
++		spireDuel.remoteCharacter = config.at("remote_character").get<u8>();
++		spireDuel.stage = config.at("stage").get<u16>();
++		spireDuel.stocks = config.at("stocks").get<u8>();
++	}
++	catch (const std::exception &error)
++	{
++		forcedError = "Spire Showdown duel JSON is missing required fields";
++		ERROR_LOG(SLIPPI_ONLINE, "%s: %s", forcedError.c_str(), error.what());
++		return;
++	}
++
++	const bool safeId = !spireDuel.duelId.empty() && spireDuel.duelId.size() <= 64 &&
++	                    std::all_of(spireDuel.duelId.begin(), spireDuel.duelId.end(), [](char value) {
++	                    const auto byte = static_cast<unsigned char>(value);
++	                    return std::isalnum(byte) || value == '-' || value == '_';
++	                    });
++	const bool validCode = !spireDuel.opponentConnectCode.empty() && spireDuel.opponentConnectCode.size() <= 9 &&
++	                       spireDuel.opponentConnectCode.find('#') != std::string::npos;
++	const bool legalStage = std::find(allowedStages.begin(), allowedStages.end(), spireDuel.stage) != allowedStages.end();
++	if (!safeId || !validCode || spireDuel.localCharacter >= 26 || spireDuel.remoteCharacter >= 26 ||
++	    !legalStage || spireDuel.stocks != 1)
++	{
++		forcedError = "Spire Showdown duel settings failed validation";
++		ERROR_LOG(SLIPPI_ONLINE, "%s", forcedError.c_str());
++		return;
++	}
++
++	spireDuel.enabled = true;
++	NOTICE_LOG(SLIPPI_ONLINE, "Loaded Spire Showdown duel %s", spireDuel.duelId.c_str());
++}
++
+ CEXISlippi::~CEXISlippi()
+@@ -1923,2 +1985,8 @@ void CEXISlippi::startFindMatch(u8 *payload)
+ 	shiftJisCode.erase(std::find(shiftJisCode.begin(), shiftJisCode.end(), 0x00), shiftJisCode.end());
++	if (spireDuel.enabled)
++	{
++		search.mode = SlippiMatchmaking::DIRECT;
++		shiftJisCode = ConvertConnectCodeForGame(spireDuel.opponentConnectCode);
++		shiftJisCode.erase(std::find(shiftJisCode.begin(), shiftJisCode.end(), 0x00), shiftJisCode.end());
++	}
+ 
+@@ -2395,2 +2463,12 @@ void CEXISlippi::prepareOnlineMatchState()
+ 		}
++		if (spireDuel.enabled && remotePlayerCount == 1)
++		{
++			auto *local = orderedSelections[localPlayerIndex];
++			auto *remote = orderedSelections[remotePlayerIndex];
++			local->characterId = spireDuel.localCharacter;
++			remote->characterId = spireDuel.remoteCharacter;
++			local->isCharacterSelected = remote->isCharacterSelected = true;
++			local->stageId = remote->stageId = spireDuel.stage;
++			local->isStageSelected = remote->isStageSelected = true;
++		}
+ 
+@@ -2572,3 +2650,4 @@ void CEXISlippi::prepareOnlineMatchState()
+ 		{
+-			onlineMatchBlock[0x62 + i * 0x24] = desync_recovery.state.fighters[i].stocks_remaining;
++			onlineMatchBlock[0x62 + i * 0x24] =
++			    spireDuel.enabled ? spireDuel.stocks : desync_recovery.state.fighters[i].stocks_remaining;
+ 
+@@ -2780,3 +2859,10 @@ void CEXISlippi::setMatchSelections(u8 *payload)
+ 	s.isStageSelected = stageSelectOption == 1 || stageSelectOption == 3;
+-	if (stageSelectOption == 3)
++	if (spireDuel.enabled)
++	{
++		s.characterId = spireDuel.localCharacter;
++		s.isCharacterSelected = true;
++		s.stageId = spireDuel.stage;
++		s.isStageSelected = true;
++	}
++	if (!spireDuel.enabled && stageSelectOption == 3)
+ 	{
+diff --git a/Source/Core/Core/HW/EXI_DeviceSlippi.h b/Source/Core/Core/HW/EXI_DeviceSlippi.h
+index c8fdedb..a42040b 100644
+--- a/Source/Core/Core/HW/EXI_DeviceSlippi.h
++++ b/Source/Core/Core/HW/EXI_DeviceSlippi.h
+@@ -337,2 +337,15 @@ class CEXISlippi : public IEXIDevice
+ 
++	struct SpireDuelSettings
++	{
++		bool enabled = false;
++		std::string duelId;
++		std::string opponentConnectCode;
++		u8 localCharacter = 0;
++		u8 remoteCharacter = 0;
++		u16 stage = 0;
++		u8 stocks = 0;
++	};
++	SpireDuelSettings spireDuel;
++	void loadSpireDuelSettings();
++
+ 	// Used to determine when to detect when a new session has started
+diff --git a/Source/Core/DolphinWX/Main.cpp b/Source/Core/DolphinWX/Main.cpp
+index c266fb9..bd16ad4 100644
+--- a/Source/Core/DolphinWX/Main.cpp
++++ b/Source/Core/DolphinWX/Main.cpp
+@@ -145,2 +145,4 @@ bool DolphinApp::OnInit()
+ 		SConfig::GetInstance().m_spectator_local_port = m_slippi_spectator_port;
++	if (!m_spire_duel_file.empty())
++		SConfig::GetInstance().m_spireDuelFile = WxStrToStr(m_spire_duel_file);
+ 
+@@ -326,2 +328,4 @@ void DolphinApp::OnInitCmdLine(wxCmdLineParser &parser)
+ 	     wxCMD_LINE_VAL_NUMBER, wxCMD_LINE_PARAM_OPTIONAL},
++	    {wxCMD_LINE_OPTION, nullptr, "spire-duel", "Spire Showdown duel JSON file",
++	     wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL},
+ #ifdef IS_PLAYBACK
+@@ -396,2 +400,3 @@ bool DolphinApp::OnCmdLineParsed(wxCmdLineParser &parser)
+ 	m_select_slippi_spectator_port = parser.Found("slippi-spectator-port", &m_slippi_spectator_port);
++	parser.Found("spire-duel", &m_spire_duel_file);
+ #ifdef IS_PLAYBACK
+diff --git a/Source/Core/DolphinWX/Main.h b/Source/Core/DolphinWX/Main.h
+index 99fbabb..c92f11e 100644
+--- a/Source/Core/DolphinWX/Main.h
++++ b/Source/Core/DolphinWX/Main.h
+@@ -62,2 +62,3 @@ private:
+ 	wxString m_slippi_input_name;
++	wxString m_spire_duel_file;
+ 	long m_slippi_spectator_port;

@@ -39,6 +39,11 @@ automatically entering Direct mode. The next milestone is therefore a narrow
 `--spire-duel` Slippi patch; see `docs/slippi-control-spike.md`. This avoids
 brittle input automation and leaves normal Slippi behavior untouched.
 
+The first patch increment is now in `slippi-patch/`. It accepts and validates
+the duel contract, overrides the Direct code and match selections, and enforces
+one stock. Automatic entry into the injected online menu is still in progress,
+so this is not a playable release yet.
+
 ## Bridge quick start
 
 ```bash
