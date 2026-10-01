@@ -24,15 +24,13 @@ jobs:
       - run: cargo build --release
       - name: Validate Bazzite installer syntax
         if: runner.os == 'Linux'
-        working-directory: ..
         shell: bash
-        run: bash -n install/install-bazzite.sh
+        run: bash -n ../install/install-bazzite.sh
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
-        working-directory: ..
         shell: powershell
         run: |
-          [void][scriptblock]::Create((Get-Content install/install-windows.ps1 -Raw))
+          [void][scriptblock]::Create((Get-Content ../install/install-windows.ps1 -Raw))
       - name: Assemble platform mod bundle
         shell: bash
         run: |
