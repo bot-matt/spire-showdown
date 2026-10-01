@@ -1,5 +1,6 @@
 using Godot;
 using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
+using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 
 namespace SpireShowdown;
 
@@ -11,6 +12,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private readonly Label _status = new();
     private readonly Label _version = new();
     private double _elapsed;
+    private double _menuPollElapsed;
     private string _baseStatus = "Preparing the arena";
 
     public event Action? SmokeTestRequested;
@@ -57,9 +59,11 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _version.AnchorTop = 0.012f;
         _version.AnchorRight = 0.985f;
         _version.AnchorBottom = 0.055f;
+        _version.Visible = false;
         AddChild(_version);
 
         HideOverlay();
+        SetProcess(true);
         SetProcessUnhandledKeyInput(true);
     }
 
@@ -92,7 +96,6 @@ internal sealed partial class DuelOverlay : CanvasLayer
     public void HideOverlay()
     {
         _backdrop.Visible = false;
-        SetProcess(false);
     }
 
     public void SetRuntimeReady(bool ready)
@@ -114,9 +117,29 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public override void _Process(double delta)
     {
+        _menuPollElapsed += delta;
+        if (_menuPollElapsed >= 0.5)
+        {
+            _menuPollElapsed = 0;
+            _version.Visible = ContainsMainMenu(GetTree().Root);
+        }
+        if (!_backdrop.Visible)
+            return;
         _elapsed += delta;
         var dots = new string('.', 1 + (int)(_elapsed * 2) % 3);
         _status.Text = $"{_baseStatus}{dots}";
+    }
+
+    private static bool ContainsMainMenu(Node node)
+    {
+        if (node is NMainMenu)
+            return true;
+        foreach (Node child in node.GetChildren())
+        {
+            if (ContainsMainMenu(child))
+                return true;
+        }
+        return false;
     }
 
     public override void _UnhandledKeyInput(InputEvent @event)
