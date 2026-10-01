@@ -2,7 +2,8 @@
 param(
     [string]$GameDir,
     [string]$Iso,
-    [string]$SlippiBundle
+    [string]$SlippiBundle,
+    [string]$ConnectCode
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,11 +32,47 @@ function Find-Sts2Game {
     return $null
 }
 
+function Test-ConnectCode([string]$Code) {
+    return -not [string]::IsNullOrWhiteSpace($Code) -and
+        $Code.Length -le 9 -and $Code.Contains('#')
+}
+
+function Find-SlippiConnectCode {
+    $paths = @(
+        (Join-Path $env:APPDATA 'Slippi Launcher\netplay\Slippi\user.json'),
+        (Join-Path $env:APPDATA 'Slippi Launcher\netplay-beta\Slippi\user.json'),
+        (Join-Path $env:APPDATA 'SlippiOnline\Slippi\user.json'),
+        (Join-Path $env:APPDATA 'slippi-dolphin\netplay\Slippi\user.json'),
+        (Join-Path $env:APPDATA 'slippi-dolphin\netplay-beta\Slippi\user.json')
+    )
+    foreach ($path in $paths) {
+        if (-not (Test-Path $path)) { continue }
+        try {
+            $code = (Get-Content $path -Raw | ConvertFrom-Json).connectCode
+            if (Test-ConnectCode $code) { return $code.Trim() }
+        } catch {}
+    }
+    return $null
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $GameDir) { $GameDir = Find-Sts2Game }
 if (-not $GameDir) { $GameDir = Read-Host 'Paste the Slay the Spire 2 game folder' }
 if (-not (Test-Path (Join-Path $GameDir 'SlayTheSpire2.exe'))) {
     throw "Game executable not found in $GameDir"
+}
+if (Get-Process -Name 'SlayTheSpire2' -ErrorAction SilentlyContinue) {
+    throw 'Close Slay the Spire 2 before running the installer.'
+}
+
+$steamapps = Split-Path (Split-Path $GameDir -Parent) -Parent
+$baseLib = Join-Path $steamapps 'workshop\content\2868840\3737335127\BaseLib\BaseLib.dll'
+if (-not (Test-Path $baseLib)) {
+    throw @"
+BaseLib is not installed in this Steam library.
+Subscribe to Workshop item 3737335127, let Steam finish downloading it, then run this installer again:
+https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127
+"@
 }
 
 $payloadCandidates = @(
@@ -115,21 +152,47 @@ if (Test-Path $configPath) {
         if ($old.connect_code) { $config.connect_code = $old.connect_code }
     } catch {}
 }
-if (-not $config.ContainsKey('connect_code')) { $config.connect_code = $null }
+if (-not (Test-ConnectCode $ConnectCode) -and $config.ContainsKey('connect_code')) {
+    $ConnectCode = $config.connect_code
+}
+if (-not (Test-ConnectCode $ConnectCode)) { $ConnectCode = Find-SlippiConnectCode }
+if (-not (Test-ConnectCode $ConnectCode)) {
+    $ConnectCode = Read-Host 'Enter your Slippi connect code (for example NAME#123)'
+}
+if (-not (Test-ConnectCode $ConnectCode)) {
+    throw 'A valid Slippi connect code is required. Sign into Slippi Launcher, then rerun this installer.'
+}
+$config.connect_code = $ConnectCode.Trim()
 $config.slippi_path = $SlippiExe
 $config.melee_iso_path = (Resolve-Path $Iso).Path
-$config | ConvertTo-Json | Set-Content $configPath -Encoding utf8
-
-$steamapps = Split-Path (Split-Path $GameDir -Parent) -Parent
-$baseLib = Join-Path $steamapps 'workshop\content\2868840\3737335127\BaseLib\BaseLib.dll'
-if (-not (Test-Path $baseLib)) {
-    Write-Warning 'BaseLib is not installed. Subscribe to Workshop item 3737335127 before launching.'
+$encodedConfig = $config | ConvertTo-Json
+[IO.File]::WriteAllText($configPath, $encodedConfig, [Text.UTF8Encoding]::new($false))
+$verifiedConfig = Get-Content $configPath -Raw | ConvertFrom-Json
+if (-not (Test-ConnectCode $verifiedConfig.connect_code)) {
+    throw "Generated config did not retain a valid connect code: $configPath"
+}
+foreach ($required in @(
+    (Join-Path $InstallDir 'SpireShowdown.dll'),
+    (Join-Path $InstallDir 'SpireShowdown.json'),
+    (Join-Path $InstallDir 'spire-showdown-bridge.exe'),
+    $verifiedConfig.slippi_path,
+    $verifiedConfig.melee_iso_path
+)) {
+    if (-not (Test-Path $required)) { throw "Post-install validation failed; missing $required" }
 }
 
 Write-Host 'Running bridge preflight...'
-& (Join-Path $InstallDir 'spire-showdown-bridge.exe') doctor --slippi $SlippiExe --iso $Iso
-if ($LASTEXITCODE -ne 0) { throw "Bridge preflight failed with exit code $LASTEXITCODE" }
+$doctorOutput = & (Join-Path $InstallDir 'spire-showdown-bridge.exe') doctor --slippi $SlippiExe --iso $Iso
+$doctorExit = $LASTEXITCODE
+$doctorJson = $doctorOutput -join [Environment]::NewLine
+$doctorJson | Write-Host
+if ($doctorExit -ne 0) { throw "Bridge preflight failed with exit code $doctorExit" }
+try { $doctor = $doctorJson | ConvertFrom-Json } catch { throw 'Bridge returned an invalid preflight report.' }
+if (-not $doctor.ready) { throw 'Bridge preflight did not report ready.' }
 
 Write-Host ''
-Write-Host 'Installation passed preflight.' -ForegroundColor Green
+Write-Host 'SPIRE SHOWDOWN INSTALLATION PASSED.' -ForegroundColor Green
+Write-Host "Connect code: $($verifiedConfig.connect_code)" -ForegroundColor Green
+Write-Host 'In Steam, start Slay the Spire 2 and choose PLAY WITH MODS.' -ForegroundColor Yellow
+Write-Host 'On the mod screen, verify BaseLib and Spire Showdown are both enabled.' -ForegroundColor Yellow
 Write-Host 'Use the same StS2 beta branch and enabled mod list on every test computer.'

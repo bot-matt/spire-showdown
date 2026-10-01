@@ -319,6 +319,8 @@ fn slippi_user_paths() -> Vec<PathBuf> {
     if cfg!(windows) {
         if let Some(value) = env::var_os("APPDATA") {
             let root = PathBuf::from(value);
+            paths.push(root.join("Slippi Launcher/netplay/Slippi/user.json"));
+            paths.push(root.join("Slippi Launcher/netplay-beta/Slippi/user.json"));
             paths.push(root.join("SlippiOnline/Slippi/user.json"));
             paths.push(root.join("slippi-dolphin/netplay/Slippi/user.json"));
             paths.push(root.join("slippi-dolphin/netplay-beta/Slippi/user.json"));
