@@ -50,6 +50,15 @@ if [[ -z "$game_dir" || ! -x "$game_dir/SlayTheSpire2" ]]; then
   read -r -p 'Paste the Slay the Spire 2 game folder: ' game_dir
 fi
 [[ -x "$game_dir/SlayTheSpire2" ]] || die "game executable not found in $game_dir"
+if pgrep -f 'SlayTheSpire2|spire-showdown-bridge' >/dev/null 2>&1; then
+  die 'close Slay the Spire 2 and its bridge before running the installer'
+fi
+
+steamapps=${game_dir%/common/Slay the Spire 2}
+baselib="$steamapps/workshop/content/2868840/3737335127/BaseLib/BaseLib.dll"
+if [[ ! -f "$baselib" ]]; then
+  die 'BaseLib is missing. Subscribe to Workshop item 3737335127, let Steam finish downloading it, then rerun this installer: https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127'
+fi
 
 payload_dir=
 for candidate in "$script_dir/SpireShowdown" "$script_dir/../SpireShowdown"; do
@@ -61,17 +70,10 @@ done
 [[ -n "$payload_dir" ]] || die 'run this script from the extracted Linux mod artifact'
 
 if [[ -z "$slippi_bundle" ]]; then
-  shopt -s nullglob
-  matches=("$downloads_dir"/spire-showdown-slippi-bazzite-x86_64*.zip)
-  shopt -u nullglob
-  if ((${#matches[@]})); then
-    slippi_bundle=${matches[0]}
-  fi
-fi
-if [[ -z "$slippi_bundle" ]]; then
   command -v curl >/dev/null || die 'curl is required to download patched Slippi'
   slippi_bundle="$downloads_dir/spire-showdown-slippi-bazzite-x86_64.zip"
-  note 'Downloading the public patched Slippi release'
+  mkdir -p "$downloads_dir"
+  note 'Downloading the latest public patched Slippi release (replacing any cached copy)'
   curl --fail --location --progress-bar \
     'https://github.com/bot-matt/spire-showdown/releases/latest/download/spire-showdown-slippi-bazzite-x86_64.zip' \
     --output "$slippi_bundle" || slippi_bundle=
@@ -81,6 +83,7 @@ if [[ -z "$slippi_bundle" || ! -f "$slippi_bundle" ]]; then
 fi
 [[ -f "$slippi_bundle" ]] || die "Slippi artifact not found: $slippi_bundle"
 command -v unzip >/dev/null || die 'unzip is required'
+command -v python3 >/dev/null || die 'python3 is required'
 
 if [[ -z "$iso_path" ]]; then
   launcher_settings="$HOME/.config/Slippi Launcher/Settings"
@@ -114,55 +117,99 @@ fi
 install_dir="$game_dir/mods/SpireShowdown"
 note "Installing mod to $install_dir"
 mkdir -p "$install_dir"
-cp -f "$payload_dir/SpireShowdown.dll" "$payload_dir/SpireShowdown.json" \
-  "$payload_dir/spire-showdown-bridge" "$install_dir/"
+install -m 0644 "$payload_dir/SpireShowdown.dll" "$install_dir/.SpireShowdown.dll.new"
+install -m 0644 "$payload_dir/SpireShowdown.json" "$install_dir/.SpireShowdown.json.new"
+install -m 0755 "$payload_dir/spire-showdown-bridge" "$install_dir/.spire-showdown-bridge.new"
+mv -f "$install_dir/.SpireShowdown.dll.new" "$install_dir/SpireShowdown.dll"
+mv -f "$install_dir/.SpireShowdown.json.new" "$install_dir/SpireShowdown.json"
+mv -f "$install_dir/.spire-showdown-bridge.new" "$install_dir/spire-showdown-bridge"
+cmp -s "$payload_dir/SpireShowdown.dll" "$install_dir/SpireShowdown.dll" \
+  || die 'installed mod DLL does not match the release payload'
+cmp -s "$payload_dir/SpireShowdown.json" "$install_dir/SpireShowdown.json" \
+  || die 'installed mod manifest does not match the release payload'
+cmp -s "$payload_dir/spire-showdown-bridge" "$install_dir/spire-showdown-bridge" \
+  || die 'installed bridge does not match the release payload'
 
 tmp_dir=$(mktemp -d /tmp/spire-showdown-install.XXXXXX)
 trap 'rm -rf -- "$tmp_dir"' EXIT
 unzip -q -o "$slippi_bundle" -d "$tmp_dir"
 appimage=$(find "$tmp_dir" -type f -iname '*.AppImage' -print -quit)
 [[ -n "$appimage" ]] || die 'patched Slippi artifact did not contain an AppImage'
-cp -f "$appimage" "$install_dir/Spire-Showdown-Slippi-Bazzite-x86_64.AppImage"
-chmod 0755 "$install_dir/spire-showdown-bridge" \
-  "$install_dir/Spire-Showdown-Slippi-Bazzite-x86_64.AppImage"
+installed_slippi="$install_dir/Spire-Showdown-Slippi-Bazzite-x86_64.AppImage"
+install -m 0755 "$appimage" "$install_dir/.Spire-Showdown-Slippi.new"
+mv -f "$install_dir/.Spire-Showdown-Slippi.new" "$installed_slippi"
+cmp -s "$appimage" "$installed_slippi" \
+  || die 'installed Slippi AppImage does not match the release payload'
 
 config_dir="$HOME/.local/share/SlayTheSpire2"
 config_path="$config_dir/spire-showdown.json"
 mkdir -p "$config_dir"
+connect_code=${SPIRE_SHOWDOWN_CONNECT_CODE:-}
+if [[ -z "$connect_code" ]]; then
+  connect_code=$(python3 - "$config_path" <<'PY' || true
+import json, os, pathlib, sys
+paths = [
+    pathlib.Path(sys.argv[1]),
+    pathlib.Path.home() / ".config/Slippi Launcher/netplay/Slippi/user.json",
+    pathlib.Path.home() / ".config/Slippi Launcher/netplay-beta/Slippi/user.json",
+    pathlib.Path.home() / ".config/SlippiOnline/Slippi/user.json",
+    pathlib.Path.home() / ".config/slippi-dolphin/netplay/Slippi/user.json",
+    pathlib.Path.home() / ".config/slippi-dolphin/netplay-beta/Slippi/user.json",
+]
+for path in paths:
+    try:
+        data = json.loads(path.read_text())
+        code = data.get("connect_code") or data.get("connectCode")
+        if isinstance(code, str) and "#" in code and len(code.strip()) <= 9:
+            print(code.strip())
+            break
+    except Exception:
+        pass
+PY
+)
+fi
+if [[ "$connect_code" != *'#'* || ${#connect_code} -gt 9 ]]; then
+  read -r -p 'Enter your Slippi connect code (for example NAME#123): ' connect_code
+fi
+[[ "$connect_code" == *'#'* && ${#connect_code} -le 9 ]] \
+  || die 'a valid Slippi connect code is required; sign into Slippi Launcher and rerun the installer'
 python3 - "$config_path" \
-  "$install_dir/Spire-Showdown-Slippi-Bazzite-x86_64.AppImage" "$iso_path" <<'PY'
+  "$installed_slippi" "$iso_path" "$connect_code" <<'PY'
 import json, pathlib, sys
-config_path, slippi_path, iso_path = map(pathlib.Path, sys.argv[1:])
+config_path, slippi_path, iso_path = map(pathlib.Path, sys.argv[1:4])
+connect_code = sys.argv[4]
 existing = {}
 try:
     existing = json.loads(config_path.read_text())
 except Exception:
     pass
 existing.update({
-    "connect_code": existing.get("connect_code"),
+    "connect_code": connect_code,
     "slippi_path": str(slippi_path.resolve()),
     "melee_iso_path": str(iso_path.resolve()),
 })
 config_path.write_text(json.dumps(existing, indent=2) + "\n")
 PY
 
-steamapps=${game_dir%/common/Slay the Spire 2}
-baselib="$steamapps/workshop/content/2868840/3737335127/BaseLib/BaseLib.dll"
-if [[ ! -f "$baselib" ]]; then
-  printf '\nWARNING: BaseLib is not installed. Subscribe to Workshop item 3737335127 before launching.\n'
-fi
-
 note 'Running bridge preflight'
 "$install_dir/spire-showdown-bridge" doctor \
-  --slippi "$install_dir/Spire-Showdown-Slippi-Bazzite-x86_64.AppImage" \
+  --slippi "$installed_slippi" \
   --iso "$iso_path"
+
+installed_version=$(python3 - "$install_dir/SpireShowdown.json" <<'PY'
+import json, pathlib, sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text())["version"])
+PY
+)
 
 cat <<EOF
 
-Installation passed preflight.
+SPIRE SHOWDOWN $installed_version INSTALLATION PASSED.
+Installed files match the release payload byte-for-byte.
 
 In Steam, set Slay the Spire 2 Launch Options to:
   --display-driver x11
 
+Start Slay the Spire 2 with PLAY WITH MODS and verify BaseLib and Spire Showdown are enabled.
 Use the same StS2 beta branch and enabled mod list on every test computer.
 EOF

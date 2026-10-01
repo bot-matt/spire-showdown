@@ -61,8 +61,8 @@ if (-not $GameDir) { $GameDir = Read-Host 'Paste the Slay the Spire 2 game folde
 if (-not (Test-Path (Join-Path $GameDir 'SlayTheSpire2.exe'))) {
     throw "Game executable not found in $GameDir"
 }
-if (Get-Process -Name 'SlayTheSpire2' -ErrorAction SilentlyContinue) {
-    throw 'Close Slay the Spire 2 before running the installer.'
+if (Get-Process -Name 'SlayTheSpire2','spire-showdown-bridge' -ErrorAction SilentlyContinue) {
+    throw 'Close Slay the Spire 2 and any Spire Showdown bridge process before running the installer.'
 }
 
 $steamapps = Split-Path (Split-Path $GameDir -Parent) -Parent
@@ -86,12 +86,9 @@ $PayloadDir = $payloadCandidates | Where-Object {
 if (-not $PayloadDir) { throw 'Run this script from the extracted Windows mod artifact.' }
 
 if (-not $SlippiBundle) {
-    $SlippiBundle = Get-ChildItem (Join-Path $HOME 'Downloads') -Filter 'spire-showdown-slippi-windows-x86_64*.zip' -File -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty FullName
-}
-if (-not $SlippiBundle) {
     $SlippiBundle = Join-Path $HOME 'Downloads\spire-showdown-slippi-windows-x86_64.zip'
-    Write-Host 'Downloading the public patched Slippi release...'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $SlippiBundle) | Out-Null
+    Write-Host 'Downloading the latest public patched Slippi release (replacing any cached copy)...'
     try {
         Invoke-WebRequest -Uri 'https://github.com/bot-matt/spire-showdown/releases/latest/download/spire-showdown-slippi-windows-x86_64.zip' -OutFile $SlippiBundle
     } catch {
@@ -120,6 +117,11 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
 Copy-Item (Join-Path $PayloadDir 'SpireShowdown.dll') $InstallDir -Force
 Copy-Item (Join-Path $PayloadDir 'SpireShowdown.json') $InstallDir -Force
 Copy-Item (Join-Path $PayloadDir 'spire-showdown-bridge.exe') $InstallDir -Force
+foreach ($name in @('SpireShowdown.dll', 'SpireShowdown.json', 'spire-showdown-bridge.exe')) {
+    $sourceHash = (Get-FileHash (Join-Path $PayloadDir $name) -Algorithm SHA256).Hash
+    $installedHash = (Get-FileHash (Join-Path $InstallDir $name) -Algorithm SHA256).Hash
+    if ($sourceHash -ne $installedHash) { throw "Installed $name does not match the release payload." }
+}
 
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ("spire-showdown-" + [guid]::NewGuid())
 New-Item -ItemType Directory $tempDir | Out-Null
@@ -127,8 +129,9 @@ try {
     Expand-Archive -Path $SlippiBundle -DestinationPath $tempDir -Force
     $innerZip = Get-ChildItem $tempDir -Recurse -Filter '*.zip' -File | Select-Object -First 1
     $slippiDir = Join-Path $InstallDir 'Slippi'
+    if (Test-Path $slippiDir) { Remove-Item $slippiDir -Recurse -Force }
+    New-Item -ItemType Directory -Force $slippiDir | Out-Null
     if ($innerZip) {
-        New-Item -ItemType Directory -Force $slippiDir | Out-Null
         Expand-Archive -Path $innerZip.FullName -DestinationPath $slippiDir -Force
     } else {
         Copy-Item (Join-Path $tempDir '*') $slippiDir -Recurse -Force
@@ -191,7 +194,9 @@ try { $doctor = $doctorJson | ConvertFrom-Json } catch { throw 'Bridge returned 
 if (-not $doctor.ready) { throw 'Bridge preflight did not report ready.' }
 
 Write-Host ''
-Write-Host 'SPIRE SHOWDOWN INSTALLATION PASSED.' -ForegroundColor Green
+$installedManifest = Get-Content (Join-Path $InstallDir 'SpireShowdown.json') -Raw | ConvertFrom-Json
+Write-Host "SPIRE SHOWDOWN $($installedManifest.version) INSTALLATION PASSED." -ForegroundColor Green
+Write-Host 'Installed mod files match the release payload byte-for-byte.' -ForegroundColor Green
 Write-Host "Connect code: $($verifiedConfig.connect_code)" -ForegroundColor Green
 Write-Host 'In Steam, start Slay the Spire 2 and choose PLAY WITH MODS.' -ForegroundColor Yellow
 Write-Host 'On the mod screen, verify BaseLib and Spire Showdown are both enabled.' -ForegroundColor Yellow

@@ -326,6 +326,8 @@ fn slippi_user_paths() -> Vec<PathBuf> {
             paths.push(root.join("slippi-dolphin/netplay-beta/Slippi/user.json"));
         }
     } else if let Some(home) = home_dir() {
+        paths.push(home.join(".config/Slippi Launcher/netplay/Slippi/user.json"));
+        paths.push(home.join(".config/Slippi Launcher/netplay-beta/Slippi/user.json"));
         paths.push(home.join(".config/SlippiOnline/Slippi/user.json"));
         paths.push(home.join(".config/slippi-dolphin/netplay/Slippi/user.json"));
         paths.push(home.join(".config/slippi-dolphin/netplay-beta/Slippi/user.json"));
