@@ -22,6 +22,17 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo build --release
+      - name: Validate Bazzite installer syntax
+        if: runner.os == 'Linux'
+        working-directory: ..
+        shell: bash
+        run: bash -n install/install-bazzite.sh
+      - name: Validate Windows installer syntax
+        if: runner.os == 'Windows'
+        working-directory: ..
+        shell: powershell
+        run: |
+          [void][scriptblock]::Create((Get-Content install/install-windows.ps1 -Raw))
       - name: Assemble platform mod bundle
         shell: bash
         run: |
@@ -30,13 +41,16 @@ jobs:
           cp ../dist/mod/SpireShowdown/SpireShowdown.json ../package/SpireShowdown/
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp target/release/spire-showdown-bridge.exe ../package/SpireShowdown/
+            cp ../install/install-windows.ps1 ../package/
           else
             cp target/release/spire-showdown-bridge ../package/SpireShowdown/
             chmod +x ../package/SpireShowdown/spire-showdown-bridge
+            cp ../install/install-bazzite.sh ../package/
+            chmod +x ../package/install-bazzite.sh
           fi
       - uses: actions/upload-artifact@v4
         with:
           name: spire-showdown-mod-${{ runner.os }}-x86_64
-          path: package/SpireShowdown
+          path: package
           if-no-files-found: error
           retention-days: 30

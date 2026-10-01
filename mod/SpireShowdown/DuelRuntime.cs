@@ -17,6 +17,7 @@ internal static class DuelRuntime
     private static BridgeHost? _bridge;
     private static DuelOverlay? _overlay;
     private static string? _localConnectCode;
+    private static SpireShowdownSettings? _settings;
 
     public static bool BypassHook => Bypass.Value;
     public static bool CanStart { get; private set; }
@@ -24,6 +25,7 @@ internal static class DuelRuntime
     public static async Task InitializeAsync()
     {
         var (settings, settingsPath) = SpireShowdownSettings.Load();
+        _settings = settings;
         var tree = Engine.GetMainLoop() as SceneTree
             ?? throw new InvalidOperationException("Godot scene tree is unavailable");
         if (OperatingSystem.IsLinux()
@@ -32,6 +34,7 @@ internal static class DuelRuntime
                 "Bazzite window embedding requires StS2 to use X11/XWayland; " +
                 "add --display-driver x11 to the game's Steam launch options.");
         _overlay = new DuelOverlay { Name = "SpireShowdownOverlay" };
+        _overlay.SmokeTestRequested += () => _ = RunSoloSmokeTestAsync();
         tree.Root.AddChild(_overlay);
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -58,6 +61,56 @@ internal static class DuelRuntime
 
         CanStart = true;
         MainFile.Logger.Info("Spire Showdown bridge preflight passed; two-player relic duels are enabled.");
+    }
+
+    private static async Task RunSoloSmokeTestAsync()
+    {
+        if (_bridge is null || _overlay is null || _settings is null || !CanStart)
+            return;
+        if (!await DuelLock.WaitAsync(0))
+            return;
+
+        string? duelId = null;
+        try
+        {
+            var playback = FindPlayback(_settings.PlaybackPath)
+                ?? throw new FileNotFoundException(
+                    "Slippi Playback was not found; set playback_path in spire-showdown.json");
+            var replay = FindReplay(_settings.ReplayPath)
+                ?? throw new FileNotFoundException(
+                    "No .slp replay was found; set replay_path in spire-showdown.json");
+
+            _overlay.ShowSmokeTestLoading();
+            var started = await _bridge.Client.SendAsync(
+                "start_smoke_test",
+                new { playback, replay },
+                CancellationToken.None);
+            started.Require("started");
+            duelId = started.String("duel_id")
+                ?? throw new InvalidDataException("Bridge omitted its smoke-test ID.");
+
+            var target = _overlay.GetNativeTarget();
+            var attached = await _bridge.Client.SendAsync(
+                "attach_window",
+                new { parent_handle = target.ParentHandle, bounds = target.Bounds },
+                CancellationToken.None);
+            attached.Require("accepted");
+            _overlay.HideOverlay();
+            MainFile.Logger.Info(
+                $"Solo embed smoke test is playing {Path.GetFileName(replay)} for 30 seconds.");
+            await Task.Delay(TimeSpan.FromSeconds(30));
+        }
+        catch (Exception error)
+        {
+            MainFile.Logger.Error($"Solo embed smoke test failed: {error}");
+        }
+        finally
+        {
+            if (duelId is not null)
+                await TryCancelAsync(_bridge.Client, duelId);
+            _overlay.HideOverlay();
+            DuelLock.Release();
+        }
     }
 
     public static async Task RunAsync(
@@ -237,6 +290,48 @@ internal static class DuelRuntime
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string? FindPlayback(string? configured)
+    {
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+            return Path.GetFullPath(configured);
+
+        var roots = new List<string>();
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+            roots.Add(Path.Combine(home, ".config", "Slippi Launcher", "playback"));
+        var appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrWhiteSpace(appData))
+            roots.Add(Path.Combine(appData, "Slippi Launcher", "playback"));
+
+        foreach (var root in roots.Where(Directory.Exists))
+        {
+            var candidate = Directory.EnumerateFiles(root)
+                .FirstOrDefault(path =>
+                    Path.GetFileName(path).Contains("playback", StringComparison.OrdinalIgnoreCase)
+                    && (path.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase)
+                        || path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)));
+            if (candidate is not null)
+                return Path.GetFullPath(candidate);
+        }
+        return null;
+    }
+
+    private static string? FindReplay(string? configured)
+    {
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+            return Path.GetFullPath(configured);
+
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+        var root = Path.Combine(home, "Slippi");
+        if (!Directory.Exists(root))
+            return null;
+        return Directory.EnumerateFiles(root, "*.slp", SearchOption.AllDirectories)
+            .Select(path => new FileInfo(path))
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .Select(file => file.FullName)
+            .FirstOrDefault();
+    }
 
     private static string DescribePreflight(JsonElement report)
     {

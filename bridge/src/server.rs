@@ -207,6 +207,44 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                 }
             }
         }
+        Request::StartSmokeTest { playback, replay } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            if let Err(message) = guard.machine.transition(DuelState::Launching) {
+                return error_response("invalid_state", message, true);
+            }
+            let Some(iso) = guard
+                .discovery
+                .as_ref()
+                .and_then(|report| report.melee_iso.as_ref())
+            else {
+                let _ = guard.machine.transition(DuelState::Failed);
+                return error_response(
+                    "preflight_required",
+                    "run preflight before smoke testing",
+                    true,
+                );
+            };
+            match SlippiProcess::launch_smoke_test(&playback, &iso.path, &replay) {
+                Ok(mut process) => {
+                    let pid = process.pid();
+                    let duel_id = process.duel_id().to_owned();
+                    if let Err(message) = guard.embedder.prepare(pid) {
+                        let _ = process.stop();
+                        let _ = guard.machine.transition(DuelState::Failed);
+                        return error_response("window_prepare_failed", message, true);
+                    }
+                    guard.slippi = Some(process);
+                    Response::Started {
+                        duel_id,
+                        slippi_pid: pid,
+                    }
+                }
+                Err(message) => {
+                    let _ = guard.machine.transition(DuelState::Failed);
+                    error_response("slippi_launch_failed", message, true)
+                }
+            }
+        }
         Request::AttachWindow {
             parent_handle,
             bounds,
@@ -220,6 +258,16 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                     guard.window_attached = true;
                     if guard.machine.state() == DuelState::Launching {
                         if let Err(message) = guard.machine.transition(DuelState::Connecting) {
+                            return error_response("invalid_state", message, true);
+                        }
+                    }
+                    if guard
+                        .slippi
+                        .as_ref()
+                        .is_some_and(SlippiProcess::is_smoke_test)
+                        && guard.machine.state() == DuelState::Connecting
+                    {
+                        if let Err(message) = guard.machine.transition(DuelState::Playing) {
                             return error_response("invalid_state", message, true);
                         }
                     }
@@ -316,13 +364,24 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
             if active_id != Some(duel_id.as_str()) {
                 return error_response("duel_id_mismatch", "active duel ID does not match", true);
             }
+            let was_smoke_test = guard
+                .slippi
+                .as_ref()
+                .is_some_and(SlippiProcess::is_smoke_test);
             if let Err(message) = guard.stop_slippi() {
                 return error_response("slippi_stop_failed", message, true);
             }
-            match guard.machine.transition(DuelState::Cancelled) {
-                Ok(()) => Response::Accepted,
-                Err(message) => error_response("invalid_state", message, true),
+            if let Err(message) = guard.machine.transition(DuelState::Cancelled) {
+                return error_response("invalid_state", message, true);
             }
+            if was_smoke_test {
+                for state in [DuelState::Idle, DuelState::Preflighting, DuelState::Ready] {
+                    if let Err(message) = guard.machine.transition(state) {
+                        return error_response("invalid_state", message, true);
+                    }
+                }
+            }
+            Response::Accepted
         }
         Request::Shutdown => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");

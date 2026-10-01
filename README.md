@@ -58,6 +58,35 @@ On Bazzite, add `--display-driver x11` to Slay the Spire 2's Steam launch
 options. The embedded Slippi window uses X11/XWayland re-parenting, which is not
 available when the game itself runs as a native Wayland surface.
 
+## Guided installation
+
+Download the platform mod artifact and matching patched Slippi artifact from
+GitHub Actions, then extract the mod artifact. Each platform bundle contains a
+guided installer next to its `SpireShowdown` payload:
+
+### Bazzite
+
+```bash
+chmod +x install-bazzite.sh
+./install-bazzite.sh
+```
+
+The installer finds the game, patched Slippi ZIP, Slippi-configured Melee ISO,
+and login data; installs the mod; writes `spire-showdown.json`; and runs bridge
+preflight. It prints the required `--display-driver x11` Steam option afterward.
+
+### Windows
+
+Right-click `install-windows.ps1` and choose **Run with PowerShell**, or run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+The Windows installer finds Steam libraries, expands the portable patched
+Slippi build, configures the mod, checks BaseLib, and runs bridge preflight.
+Both computers must use the same StS2 branch and enabled gameplay-mod list.
+
 The manual `patched-slippi-build` GitHub workflow builds pinned, reproducible
 Bazzite AppImage and Windows portable artifacts with both patches applied. It
 is intentionally manual because the upstream emulator builds are large.

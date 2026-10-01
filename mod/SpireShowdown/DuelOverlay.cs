@@ -12,6 +12,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private double _elapsed;
     private string _baseStatus = "Preparing the arena";
 
+    public event Action? SmokeTestRequested;
+
     public override void _Ready()
     {
         Layer = 500;
@@ -45,6 +47,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _backdrop.AddChild(_status);
 
         HideOverlay();
+        SetProcessUnhandledKeyInput(true);
     }
 
     public void ShowLoading(RelicPickingResult result)
@@ -52,6 +55,16 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _elapsed = 0;
         _relic.Texture = result.relic.BigIcon;
         _baseStatus = "Preparing the arena";
+        _status.Text = _baseStatus;
+        Visible = true;
+        SetProcess(true);
+    }
+
+    public void ShowSmokeTestLoading()
+    {
+        _elapsed = 0;
+        _relic.Texture = null;
+        _baseStatus = "Loading solo arena test";
         _status.Text = _baseStatus;
         Visible = true;
         SetProcess(true);
@@ -83,5 +96,13 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _elapsed += delta;
         var dots = new string('.', 1 + (int)(_elapsed * 2) % 3);
         _status.Text = $"{_baseStatus}{dots}";
+    }
+
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey { Pressed: true, Echo: false, Keycode: Key.F8 })
+            return;
+        GetViewport().SetInputAsHandled();
+        SmokeTestRequested?.Invoke();
     }
 }

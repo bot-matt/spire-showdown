@@ -6,7 +6,9 @@ namespace SpireShowdown;
 internal sealed record SpireShowdownSettings(
     [property: JsonPropertyName("connect_code")] string? ConnectCode,
     [property: JsonPropertyName("slippi_path")] string? SlippiPath,
-    [property: JsonPropertyName("melee_iso_path")] string? MeleeIsoPath)
+    [property: JsonPropertyName("melee_iso_path")] string? MeleeIsoPath,
+    [property: JsonPropertyName("playback_path")] string? PlaybackPath,
+    [property: JsonPropertyName("replay_path")] string? ReplayPath)
 {
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -20,11 +22,11 @@ internal sealed record SpireShowdownSettings(
         if (File.Exists(path))
         {
             settings = JsonSerializer.Deserialize<SpireShowdownSettings>(File.ReadAllText(path), Options)
-                ?? new(null, null, null);
+                ?? new(null, null, null, null, null);
         }
         else
         {
-            settings = new(null, null, null);
+            settings = new(null, null, null, null, null);
             File.WriteAllText(path, JsonSerializer.Serialize(settings, Options));
         }
 
@@ -32,7 +34,9 @@ internal sealed record SpireShowdownSettings(
         {
             ConnectCode = Override("SPIRE_SHOWDOWN_CONNECT_CODE", settings.ConnectCode),
             SlippiPath = Override("SPIRE_SHOWDOWN_SLIPPI", settings.SlippiPath),
-            MeleeIsoPath = Override("SPIRE_SHOWDOWN_MELEE_ISO", settings.MeleeIsoPath)
+            MeleeIsoPath = Override("SPIRE_SHOWDOWN_MELEE_ISO", settings.MeleeIsoPath),
+            PlaybackPath = Override("SPIRE_SHOWDOWN_PLAYBACK", settings.PlaybackPath),
+            ReplayPath = Override("SPIRE_SHOWDOWN_REPLAY", settings.ReplayPath)
         }, path);
     }
 

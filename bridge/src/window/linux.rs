@@ -126,7 +126,7 @@ impl LinuxEmbedder {
 impl WindowEmbedder for LinuxEmbedder {
     fn prepare(&mut self, child_pid: u32) -> Result<(), String> {
         self.detach()?;
-        let child = self.find_window_for_pid(child_pid, Duration::from_secs(10))?;
+        let child = self.find_window_for_pid(child_pid, Duration::from_secs(45))?;
         let original_parent = self
             .connection
             .query_tree(child)
@@ -161,7 +161,7 @@ impl WindowEmbedder for LinuxEmbedder {
         let prepared = match self.prepared.take() {
             Some(value) => value,
             None => {
-                let child = self.find_window_for_pid(child_pid, Duration::from_secs(10))?;
+                let child = self.find_window_for_pid(child_pid, Duration::from_secs(45))?;
                 let original_parent = self
                     .connection
                     .query_tree(child)

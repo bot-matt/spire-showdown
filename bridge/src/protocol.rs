@@ -24,6 +24,10 @@ pub enum Request {
     StartDuel {
         duel: DuelSpec,
     },
+    StartSmokeTest {
+        playback: PathBuf,
+        replay: PathBuf,
+    },
     AttachWindow {
         parent_handle: u64,
         bounds: Bounds,
