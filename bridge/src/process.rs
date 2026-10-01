@@ -207,12 +207,67 @@ fn configure_appimage(command: &mut Command, executable: &Path) {
         // Steam containers and some Bazzite installs do not expose /dev/fuse.
         // The AppImage runtime's built-in fallback preserves the same payload.
         command.env("APPIMAGE_EXTRACT_AND_RUN", "1");
+
+        // Native Steam launches the game in a pressure-vessel filesystem where
+        // the Fedora host libraries live under /run/host. Slippi Playback does
+        // not bundle librsvg, so expose only it and its missing dav1d dependency
+        // through a private shim. Adding the whole host library directory would
+        // mix Bazzite's PulseAudio with the older libraries bundled by Slippi.
+        #[cfg(target_os = "linux")]
+        {
+            command.env_remove("LD_PRELOAD");
+            let mut library_paths = Vec::new();
+            let shim_dir = std::env::temp_dir()
+                .join("spire-showdown")
+                .join("appimage-host-libs");
+            if fs::create_dir_all(&shim_dir).is_ok() {
+                let mut shim_ready = false;
+                for name in ["librsvg-2.so.2", "libdav1d.so.7"] {
+                    let host_library = Path::new("/run/host/usr/lib64").join(name);
+                    let Ok(host_library) = host_library.canonicalize() else {
+                        continue;
+                    };
+                    let shim = shim_dir.join(name);
+                    let _ = fs::remove_file(&shim);
+                    if std::os::unix::fs::symlink(host_library, &shim).is_ok() {
+                        shim_ready = true;
+                    }
+                }
+                if shim_ready {
+                    library_paths.push(shim_dir);
+                }
+            }
+            if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
+                library_paths.extend(std::env::split_paths(&existing));
+            }
+            if !library_paths.is_empty() {
+                if let Ok(joined) = std::env::join_paths(library_paths) {
+                    command.env("LD_LIBRARY_PATH", joined);
+                }
+            }
+        }
     }
 }
 
 impl Drop for SlippiProcess {
     fn drop(&mut self) {
         let _ = self.stop();
+        let log_name = if self.smoke_test {
+            "slippi-playback.log"
+        } else {
+            "slippi.log"
+        };
+        let diagnostic_name = if self.smoke_test {
+            "last-smoke-test.log"
+        } else {
+            "last-live-duel.log"
+        };
+        let _ = fs::copy(
+            self.session_dir.join(log_name),
+            std::env::temp_dir()
+                .join("spire-showdown")
+                .join(diagnostic_name),
+        );
         let _ = fs::remove_dir_all(&self.session_dir);
     }
 }

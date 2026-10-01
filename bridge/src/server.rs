@@ -144,7 +144,10 @@ fn handle_client(
             return Ok(true);
         }
     }
-    Ok(false)
+    // There is exactly one authenticated owner for a bridge instance. If the
+    // game disappears without sending Shutdown, exiting here drops the runtime
+    // and kills any Slippi process instead of leaving Steam stuck on "Running".
+    Ok(true)
 }
 
 fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {

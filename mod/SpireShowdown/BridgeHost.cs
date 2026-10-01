@@ -8,6 +8,7 @@ namespace SpireShowdown;
 internal sealed class BridgeHost : IAsyncDisposable
 {
     private readonly Process _process;
+    private int _stopped;
 
     private BridgeHost(Process process, BridgeClient client)
     {
@@ -80,6 +81,8 @@ internal sealed class BridgeHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _stopped, 1) != 0)
+            return;
         try
         {
             await Client.SendAsync<object>("shutdown", null, CancellationToken.None);
@@ -91,6 +94,23 @@ internal sealed class BridgeHost : IAsyncDisposable
         await Client.DisposeAsync();
         if (!_process.HasExited)
             _process.Kill(entireProcessTree: true);
+        _process.Dispose();
+    }
+
+    public void StopNow()
+    {
+        if (Interlocked.Exchange(ref _stopped, 1) != 0)
+            return;
+        try
+        {
+            if (!_process.HasExited)
+                _process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // The game is already exiting; best-effort process cleanup only.
+        }
+        Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _process.Dispose();
     }
 }

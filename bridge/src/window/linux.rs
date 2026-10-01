@@ -87,7 +87,11 @@ impl LinuxEmbedder {
                 .map_err(display_error)?
                 .reply()
                 .map_err(display_error)?;
-            let matches_pid = property.value32().and_then(|mut values| values.next()) == Some(pid);
+            let window_pid = property.value32().and_then(|mut values| values.next());
+            // AppImage's extract-and-run runtime remains as the process that
+            // Command spawned and starts AppRun/Dolphin as a child. Match that
+            // process tree, not only the wrapper PID returned by Command.
+            let matches_pid = window_pid.is_some_and(|value| pid_belongs_to(value, pid));
             if matches_pid {
                 let attributes = self
                     .connection
@@ -121,6 +125,29 @@ impl LinuxEmbedder {
             .map_err(display_error)?;
         Ok(())
     }
+}
+
+fn pid_belongs_to(candidate: u32, root: u32) -> bool {
+    let mut current = candidate;
+    for _ in 0..32 {
+        if current == root {
+            return true;
+        }
+        let Ok(status) = std::fs::read_to_string(format!("/proc/{current}/status")) else {
+            return false;
+        };
+        let Some(parent) = status.lines().find_map(|line| {
+            line.strip_prefix("PPid:")
+                .and_then(|value| value.trim().parse::<u32>().ok())
+        }) else {
+            return false;
+        };
+        if parent == 0 || parent == current {
+            return false;
+        }
+        current = parent;
+    }
+    false
 }
 
 impl WindowEmbedder for LinuxEmbedder {

@@ -18,6 +18,7 @@ internal static class DuelRuntime
     private static DuelOverlay? _overlay;
     private static string? _localConnectCode;
     private static SpireShowdownSettings? _settings;
+    private static int _shutdownStarted;
 
     public static bool BypassHook => Bypass.Value;
     public static bool CanStart { get; private set; }
@@ -36,6 +37,8 @@ internal static class DuelRuntime
         _overlay = new DuelOverlay { Name = "SpireShowdownOverlay" };
         _overlay.SmokeTestRequested += () => _ = RunSoloSmokeTestAsync();
         tree.Root.AddChild(_overlay);
+        tree.Root.TreeExiting += ShutdownNow;
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => ShutdownNow();
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         _bridge = await BridgeHost.StartAsync(timeout.Token);
@@ -61,6 +64,15 @@ internal static class DuelRuntime
 
         CanStart = true;
         MainFile.Logger.Info("Spire Showdown bridge preflight passed; two-player relic duels are enabled.");
+    }
+
+    private static void ShutdownNow()
+    {
+        if (Interlocked.Exchange(ref _shutdownStarted, 1) != 0)
+            return;
+        CanStart = false;
+        _bridge?.StopNow();
+        _bridge = null;
     }
 
     private static async Task RunSoloSmokeTestAsync()
