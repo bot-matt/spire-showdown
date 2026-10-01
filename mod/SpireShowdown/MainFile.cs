@@ -9,6 +9,7 @@ namespace SpireShowdown;
 public partial class MainFile : Node
 {
     public const string ModId = "SpireShowdown";
+    public const string Version = "v0.2.0-alpha.4";
 
     public static MegaCrit.Sts2.Core.Logging.Logger Logger { get; } = new(
         ModId,
@@ -20,7 +21,7 @@ public partial class MainFile : Node
         var harmony = new Harmony(ModId);
         harmony.PatchAll(assembly);
         _ = InitializeRuntimeAsync();
-        Logger.Info("Spire Showdown initialized; bridge preflight is running.");
+        Logger.Info($"Spire Showdown {Version} loaded from {assembly.Location}; bridge preflight is running.");
     }
 
     private static async Task InitializeRuntimeAsync()
@@ -31,6 +32,7 @@ public partial class MainFile : Node
         }
         catch (Exception error)
         {
+            DuelRuntime.MarkUnavailable();
             Logger.Warn($"Spire Showdown is unavailable; vanilla RPS remains active: {error.Message}");
         }
     }

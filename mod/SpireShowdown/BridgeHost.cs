@@ -21,6 +21,7 @@ internal sealed class BridgeHost : IAsyncDisposable
     public static async Task<BridgeHost> StartAsync(CancellationToken cancellationToken)
     {
         var bridgePath = LocateBridge();
+        MainFile.Logger.Info($"Starting Spire Showdown bridge from {bridgePath}");
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
         var startInfo = new ProcessStartInfo
         {

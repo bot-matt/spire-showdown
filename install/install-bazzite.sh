@@ -10,7 +10,6 @@ note() {
   printf '\n==> %s\n' "$*"
 }
 
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 downloads_dir=${XDG_DOWNLOAD_DIR:-"$HOME/Downloads"}
 game_dir=${SPIRE_SHOWDOWN_GAME_DIR:-}
 iso_path=${SPIRE_SHOWDOWN_MELEE_ISO:-}
@@ -53,6 +52,9 @@ fi
 if pgrep -f 'SlayTheSpire2|spire-showdown-bridge' >/dev/null 2>&1; then
   die 'close Slay the Spire 2 and its bridge before running the installer'
 fi
+command -v curl >/dev/null || die 'curl is required'
+command -v unzip >/dev/null || die 'unzip is required'
+command -v python3 >/dev/null || die 'python3 is required'
 
 steamapps=${game_dir%/common/Slay the Spire 2}
 baselib="$steamapps/workshop/content/2868840/3737335127/BaseLib/BaseLib.dll"
@@ -60,17 +62,19 @@ if [[ ! -f "$baselib" ]]; then
   die 'BaseLib is missing. Subscribe to Workshop item 3737335127, let Steam finish downloading it, then rerun this installer: https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127'
 fi
 
-payload_dir=
-for candidate in "$script_dir/SpireShowdown" "$script_dir/../SpireShowdown"; do
-  if [[ -f "$candidate/SpireShowdown.dll" && -f "$candidate/spire-showdown-bridge" ]]; then
-    payload_dir=$candidate
-    break
-  fi
-done
-[[ -n "$payload_dir" ]] || die 'run this script from the extracted Linux mod artifact'
+work_dir=$(mktemp -d /tmp/spire-showdown-install.XXXXXX)
+trap 'rm -rf -- "$work_dir"' EXIT
+note 'Downloading the latest Spire Showdown mod payload'
+curl --fail --location --progress-bar \
+  'https://github.com/bot-matt/spire-showdown/releases/latest/download/spire-showdown-mod-Linux-x86_64.zip' \
+  --output "$work_dir/mod.zip"
+mkdir -p "$work_dir/mod"
+unzip -q -o "$work_dir/mod.zip" -d "$work_dir/mod"
+payload_dir="$work_dir/mod/SpireShowdown"
+[[ -f "$payload_dir/SpireShowdown.dll" && -f "$payload_dir/spire-showdown-bridge" ]] \
+  || die 'latest Linux mod bundle is incomplete'
 
 if [[ -z "$slippi_bundle" ]]; then
-  command -v curl >/dev/null || die 'curl is required to download patched Slippi'
   slippi_bundle="$downloads_dir/spire-showdown-slippi-bazzite-x86_64.zip"
   mkdir -p "$downloads_dir"
   note 'Downloading the latest public patched Slippi release (replacing any cached copy)'
@@ -82,8 +86,6 @@ if [[ -z "$slippi_bundle" || ! -f "$slippi_bundle" ]]; then
   read -r -p 'Paste the patched Bazzite Slippi artifact ZIP: ' slippi_bundle
 fi
 [[ -f "$slippi_bundle" ]] || die "Slippi artifact not found: $slippi_bundle"
-command -v unzip >/dev/null || die 'unzip is required'
-command -v python3 >/dev/null || die 'python3 is required'
 
 if [[ -z "$iso_path" ]]; then
   launcher_settings="$HOME/.config/Slippi Launcher/Settings"
@@ -130,10 +132,9 @@ cmp -s "$payload_dir/SpireShowdown.json" "$install_dir/SpireShowdown.json" \
 cmp -s "$payload_dir/spire-showdown-bridge" "$install_dir/spire-showdown-bridge" \
   || die 'installed bridge does not match the release payload'
 
-tmp_dir=$(mktemp -d /tmp/spire-showdown-install.XXXXXX)
-trap 'rm -rf -- "$tmp_dir"' EXIT
-unzip -q -o "$slippi_bundle" -d "$tmp_dir"
-appimage=$(find "$tmp_dir" -type f -iname '*.AppImage' -print -quit)
+mkdir -p "$work_dir/slippi"
+unzip -q -o "$slippi_bundle" -d "$work_dir/slippi"
+appimage=$(find "$work_dir/slippi" -type f -iname '*.AppImage' -print -quit)
 [[ -n "$appimage" ]] || die 'patched Slippi artifact did not contain an AppImage'
 installed_slippi="$install_dir/Spire-Showdown-Slippi-Bazzite-x86_64.AppImage"
 install -m 0755 "$appimage" "$install_dir/.Spire-Showdown-Slippi.new"

@@ -9,6 +9,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private readonly TextureRect _relic = new();
     private readonly Label _title = new();
     private readonly Label _status = new();
+    private readonly Label _version = new();
     private double _elapsed;
     private string _baseStatus = "Preparing the arena";
 
@@ -29,7 +30,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _relic.AnchorBottom = 0.52f;
         _backdrop.AddChild(_relic);
 
-        _title.Text = "SPIRE SHOWDOWN";
+        _title.Text = $"SPIRE SHOWDOWN {MainFile.Version}";
         _title.HorizontalAlignment = HorizontalAlignment.Center;
         _title.AddThemeFontSizeOverride("font_size", 42);
         _title.AnchorLeft = 0.2f;
@@ -46,6 +47,18 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _status.AnchorBottom = 0.75f;
         _backdrop.AddChild(_status);
 
+        _version.Text = $"Spire Showdown {MainFile.Version}  •  STARTING";
+        _version.HorizontalAlignment = HorizontalAlignment.Right;
+        _version.MouseFilter = Control.MouseFilterEnum.Ignore;
+        _version.AddThemeFontSizeOverride("font_size", 15);
+        _version.AddThemeColorOverride("font_outline_color", new Color("111827e6"));
+        _version.AddThemeConstantOverride("outline_size", 5);
+        _version.AnchorLeft = 0.68f;
+        _version.AnchorTop = 0.012f;
+        _version.AnchorRight = 0.985f;
+        _version.AnchorBottom = 0.055f;
+        AddChild(_version);
+
         HideOverlay();
         SetProcessUnhandledKeyInput(true);
     }
@@ -56,7 +69,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _relic.Texture = result.relic.BigIcon;
         _baseStatus = "Preparing the arena";
         _status.Text = _baseStatus;
-        Visible = true;
+        _backdrop.Visible = true;
         SetProcess(true);
     }
 
@@ -66,7 +79,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _relic.Texture = null;
         _baseStatus = "Loading solo arena test";
         _status.Text = _baseStatus;
-        Visible = true;
+        _backdrop.Visible = true;
         SetProcess(true);
     }
 
@@ -78,8 +91,16 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public void HideOverlay()
     {
-        Visible = false;
+        _backdrop.Visible = false;
         SetProcess(false);
+    }
+
+    public void SetRuntimeReady(bool ready)
+    {
+        _version.Text = ready
+            ? $"Spire Showdown {MainFile.Version}  •  READY"
+            : $"Spire Showdown {MainFile.Version}  •  DISABLED — CHECK LOG";
+        _version.Modulate = ready ? new Color("9ef0b8ff") : new Color("ff9b9bff");
     }
 
     public (ulong ParentHandle, Bounds Bounds) GetNativeTarget()

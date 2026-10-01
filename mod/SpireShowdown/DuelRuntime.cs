@@ -29,14 +29,14 @@ internal static class DuelRuntime
         _settings = settings;
         var tree = Engine.GetMainLoop() as SceneTree
             ?? throw new InvalidOperationException("Godot scene tree is unavailable");
+        _overlay = new DuelOverlay { Name = "SpireShowdownOverlay" };
+        _overlay.SmokeTestRequested += () => _ = RunSoloSmokeTestAsync();
+        tree.Root.AddChild(_overlay);
         if (OperatingSystem.IsLinux()
             && !DisplayServer.GetName().Equals("x11", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
                 "Bazzite window embedding requires StS2 to use X11/XWayland; " +
                 "add --display-driver x11 to the game's Steam launch options.");
-        _overlay = new DuelOverlay { Name = "SpireShowdownOverlay" };
-        _overlay.SmokeTestRequested += () => _ = RunSoloSmokeTestAsync();
-        tree.Root.AddChild(_overlay);
         tree.Root.TreeExiting += ShutdownNow;
         AppDomain.CurrentDomain.ProcessExit += (_, _) => ShutdownNow();
 
@@ -63,8 +63,13 @@ internal static class DuelRuntime
             throw new InvalidOperationException($"set connect_code in {settingsPath}");
 
         CanStart = true;
-        MainFile.Logger.Info("Spire Showdown bridge preflight passed; two-player relic duels are enabled.");
+        _overlay.SetRuntimeReady(true);
+        MainFile.Logger.Info(
+            $"Spire Showdown {MainFile.Version} bridge preflight passed; " +
+            $"two-player relic duels are enabled. Config: {settingsPath}");
     }
+
+    public static void MarkUnavailable() => _overlay?.SetRuntimeReady(false);
 
     private static void ShutdownNow()
     {
