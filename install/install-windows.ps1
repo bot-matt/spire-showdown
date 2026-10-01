@@ -55,7 +55,6 @@ function Find-SlippiConnectCode {
     return $null
 }
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $GameDir) { $GameDir = Find-Sts2Game }
 if (-not $GameDir) { $GameDir = Read-Host 'Paste the Slay the Spire 2 game folder' }
 if (-not (Test-Path (Join-Path $GameDir 'SlayTheSpire2.exe'))) {
@@ -75,22 +74,31 @@ https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127
 "@
 }
 
-$payloadCandidates = @(
-    (Join-Path $ScriptDir 'SpireShowdown'),
-    (Join-Path (Split-Path -Parent $ScriptDir) 'SpireShowdown')
-)
-$PayloadDir = $payloadCandidates | Where-Object {
-    (Test-Path (Join-Path $_ 'SpireShowdown.dll')) -and
-    (Test-Path (Join-Path $_ 'spire-showdown-bridge.exe'))
-} | Select-Object -First 1
-if (-not $PayloadDir) { throw 'Run this script from the extracted Windows mod artifact.' }
+$payloadTempDir = Join-Path ([IO.Path]::GetTempPath()) ("spire-showdown-payload-" + [guid]::NewGuid())
+New-Item -ItemType Directory $payloadTempDir | Out-Null
+$payloadBundle = Join-Path $payloadTempDir 'mod.zip'
+$payloadRoot = Join-Path $payloadTempDir 'mod'
+Write-Host 'Downloading the latest Spire Showdown Windows mod payload...'
+Invoke-WebRequest `
+    -Uri 'https://github.com/bot-matt/spire-showdown/releases/latest/download/spire-showdown-mod-Windows-x86_64.zip' `
+    -Headers @{ 'Cache-Control' = 'no-cache' } `
+    -OutFile $payloadBundle
+Expand-Archive -Path $payloadBundle -DestinationPath $payloadRoot -Force
+$PayloadDir = Join-Path $payloadRoot 'SpireShowdown'
+if (-not (Test-Path (Join-Path $PayloadDir 'SpireShowdown.dll')) -or
+    -not (Test-Path (Join-Path $PayloadDir 'spire-showdown-bridge.exe'))) {
+    throw 'Latest Windows mod bundle is incomplete.'
+}
 
 if (-not $SlippiBundle) {
     $SlippiBundle = Join-Path $HOME 'Downloads\spire-showdown-slippi-windows-x86_64.zip'
     New-Item -ItemType Directory -Force (Split-Path -Parent $SlippiBundle) | Out-Null
     Write-Host 'Downloading the latest public patched Slippi release (replacing any cached copy)...'
     try {
-        Invoke-WebRequest -Uri 'https://github.com/bot-matt/spire-showdown/releases/latest/download/spire-showdown-slippi-windows-x86_64.zip' -OutFile $SlippiBundle
+        Invoke-WebRequest `
+            -Uri 'https://github.com/bot-matt/spire-showdown/releases/latest/download/spire-showdown-slippi-windows-x86_64.zip' `
+            -Headers @{ 'Cache-Control' = 'no-cache' } `
+            -OutFile $SlippiBundle
     } catch {
         $SlippiBundle = $null
     }
@@ -201,3 +209,4 @@ Write-Host "Connect code: $($verifiedConfig.connect_code)" -ForegroundColor Gree
 Write-Host 'In Steam, start Slay the Spire 2 and choose PLAY WITH MODS.' -ForegroundColor Yellow
 Write-Host 'On the mod screen, verify BaseLib and Spire Showdown are both enabled.' -ForegroundColor Yellow
 Write-Host 'Use the same StS2 beta branch and enabled mod list on every test computer.'
+Remove-Item $payloadTempDir -Recurse -Force -ErrorAction SilentlyContinue
