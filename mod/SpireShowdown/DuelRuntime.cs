@@ -165,14 +165,15 @@ internal static class DuelRuntime
             started.Require("started");
 
             using var launchTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
-            await WaitForPhaseAsync(_bridge.Client, "ready", launchTimeout.Token);
-
+            _overlay.SetStatus("Embedding Slippi");
             var target = _overlay.GetNativeTarget();
             var attached = await _bridge.Client.SendAsync(
                 "attach_window",
                 new { parent_handle = target.ParentHandle, bounds = target.Bounds },
                 launchTimeout.Token);
             attached.Require("accepted");
+
+            await WaitForPhaseAsync(_bridge.Client, "ready", launchTimeout.Token);
             _overlay.HideOverlay();
 
             using var matchTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));

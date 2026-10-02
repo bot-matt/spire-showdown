@@ -36,5 +36,9 @@ gecko build -batched -c netplay.json -defsym "STG_EXIIndex=1"
 ```
 
 The game-code patch has been assembled locally with all 203 upstream ASM files.
+The resulting `GALE01r2.ini` and `GALJ01r2.ini` are checked in beside the
+patch because upstream also checks in prebuilt outputs and applying an ASM
+source patch alone does not regenerate them. The Slippi build packages these
+patched outputs rather than the upstream prebuilt files.
 These patches remain experimental until both Bazzite and Windows Slippi builds
 pass an actual mixed-platform Direct match.

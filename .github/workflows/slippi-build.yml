@@ -37,8 +37,12 @@ jobs:
           git clone https://github.com/project-slippi/slippi-ssbm-asm.git game-code
           git -C game-code checkout "$GAME_CODE_REVISION"
           git -C game-code apply "$GITHUB_WORKSPACE/slippi-patch/0002-spire-duel-autoboot.patch"
-          cp game-code/Output/Netplay/GALE01r2.ini slippi/Data/Sys/GameSettings/
-          cp game-code/Output/Netplay/GALJ01r2.ini slippi/Data/Sys/GameSettings/
+          # The upstream Output directory contains prebuilt files and applying
+          # an ASM source patch does not regenerate them. Package the checked-in
+          # outputs assembled from the patched pinned revision.
+          cp "$GITHUB_WORKSPACE/slippi-patch/GALE01r2.ini" slippi/Data/Sys/GameSettings/
+          cp "$GITHUB_WORKSPACE/slippi-patch/GALJ01r2.ini" slippi/Data/Sys/GameSettings/
+          sha256sum slippi/Data/Sys/GameSettings/GALE01r2.ini slippi/Data/Sys/GameSettings/GALJ01r2.ini
 
       - name: Install native dependencies
         shell: bash
@@ -107,8 +111,9 @@ jobs:
           git clone https://github.com/project-slippi/slippi-ssbm-asm.git game-code
           git -C game-code checkout "$GAME_CODE_REVISION"
           git -C game-code apply "$GITHUB_WORKSPACE/slippi-patch/0002-spire-duel-autoboot.patch"
-          cp game-code/Output/Netplay/GALE01r2.ini slippi/Data/Sys/GameSettings/
-          cp game-code/Output/Netplay/GALJ01r2.ini slippi/Data/Sys/GameSettings/
+          cp "$GITHUB_WORKSPACE/slippi-patch/GALE01r2.ini" slippi/Data/Sys/GameSettings/
+          cp "$GITHUB_WORKSPACE/slippi-patch/GALJ01r2.ini" slippi/Data/Sys/GameSettings/
+          sha256sum slippi/Data/Sys/GameSettings/GALE01r2.ini slippi/Data/Sys/GameSettings/GALJ01r2.ini
 
       - id: rust-version
         name: Read pinned Rust version

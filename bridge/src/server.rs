@@ -37,6 +37,28 @@ impl BridgeRuntime {
         }
     }
 
+    fn restore_ready_state(&mut self) -> Result<(), String> {
+        if matches!(
+            self.machine.state(),
+            DuelState::Completed | DuelState::Failed | DuelState::Cancelled
+        ) {
+            self.machine.transition(DuelState::Idle)?;
+        }
+        if self.machine.state() == DuelState::Idle {
+            self.machine.transition(DuelState::Preflighting)?;
+        }
+        if self.machine.state() == DuelState::Preflighting {
+            self.machine.transition(DuelState::Ready)?;
+        }
+        if self.machine.state() != DuelState::Ready {
+            return Err(format!(
+                "cannot restore bridge readiness from {:?}",
+                self.machine.state()
+            ));
+        }
+        Ok(())
+    }
+
     fn stop_slippi(&mut self) -> Result<(), String> {
         let had_process = self.slippi.is_some();
         let stop_result = self
@@ -357,7 +379,10 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                 );
             }
             match guard.stop_slippi() {
-                Ok(()) => Response::Accepted,
+                Ok(()) => match guard.restore_ready_state() {
+                    Ok(()) => Response::Accepted,
+                    Err(message) => error_response("readiness_restore_failed", message, true),
+                },
                 Err(message) => error_response("slippi_stop_failed", message, true),
             }
         }
@@ -367,22 +392,19 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
             if active_id != Some(duel_id.as_str()) {
                 return error_response("duel_id_mismatch", "active duel ID does not match", true);
             }
-            let was_smoke_test = guard
-                .slippi
-                .as_ref()
-                .is_some_and(SlippiProcess::is_smoke_test);
             if let Err(message) = guard.stop_slippi() {
                 return error_response("slippi_stop_failed", message, true);
             }
-            if let Err(message) = guard.machine.transition(DuelState::Cancelled) {
-                return error_response("invalid_state", message, true);
-            }
-            if was_smoke_test {
-                for state in [DuelState::Idle, DuelState::Preflighting, DuelState::Ready] {
-                    if let Err(message) = guard.machine.transition(state) {
-                        return error_response("invalid_state", message, true);
-                    }
+            if !matches!(
+                guard.machine.state(),
+                DuelState::Completed | DuelState::Failed | DuelState::Cancelled
+            ) {
+                if let Err(message) = guard.machine.transition(DuelState::Cancelled) {
+                    return error_response("invalid_state", message, true);
                 }
+            }
+            if let Err(message) = guard.restore_ready_state() {
+                return error_response("readiness_restore_failed", message, true);
             }
             Response::Accepted
         }
