@@ -74,6 +74,8 @@ chmod +x install-bazzite.sh
 The installer finds the game, patched Slippi ZIP, Slippi-configured Melee ISO,
 and login data; installs the mod; writes `spire-showdown.json`; and runs bridge
 preflight. It prints the required `--display-driver x11` Steam option afterward.
+It maps Player 1 to the connected Steam/evdev gamepad and enables input while
+Slippi is embedded.
 
 ### Windows
 
@@ -85,6 +87,7 @@ powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 
 The Windows installer finds Steam libraries, expands the portable patched
 Slippi build, configures the mod, checks BaseLib, and runs bridge preflight.
+It maps Player 1 to the first XInput gamepad and enables background input.
 Both computers must use the same StS2 branch and enabled gameplay-mod list.
 
 The manual `patched-slippi-build` GitHub workflow builds pinned, reproducible

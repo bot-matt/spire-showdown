@@ -153,6 +153,56 @@ $SlippiExe = Get-ChildItem (Join-Path $InstallDir 'Slippi') -Recurse -File |
     Select-Object -First 1 -ExpandProperty FullName
 if (-not $SlippiExe) { throw 'Could not find Dolphin.exe in the patched Slippi artifact.' }
 
+Write-Host 'Configuring the active XInput/Steam gamepad for Player 1...'
+$slippiUserConfig = Join-Path (Split-Path $SlippiExe -Parent) 'User\Config'
+New-Item -ItemType Directory -Force $slippiUserConfig | Out-Null
+$gcPadConfig = @'
+[GCPad1]
+Device = XInput/0/Gamepad
+Buttons/A = `Button A`
+Buttons/B = `Button B`
+Buttons/X = `Button X`
+Buttons/Y = `Button Y`
+Buttons/Z = `Shoulder R`
+Buttons/Start = `Start`
+Main Stick/Up = `Left Y+`
+Main Stick/Down = `Left Y-`
+Main Stick/Left = `Left X-`
+Main Stick/Right = `Left X+`
+C-Stick/Up = `Right Y+`
+C-Stick/Down = `Right Y-`
+C-Stick/Left = `Right X-`
+C-Stick/Right = `Right X+`
+Triggers/L = `Trigger L`
+Triggers/R = `Trigger R`
+D-Pad/Up = `Pad N`
+D-Pad/Down = `Pad S`
+D-Pad/Left = `Pad W`
+D-Pad/Right = `Pad E`
+Rumble/Motor = `Motor L` | `Motor R`
+[GCPad2]
+[GCPad3]
+[GCPad4]
+'@
+[IO.File]::WriteAllText((Join-Path $slippiUserConfig 'GCPadNew.ini'), $gcPadConfig, [Text.UTF8Encoding]::new($false))
+$dolphinIni = Join-Path $slippiUserConfig 'Dolphin.ini'
+$dolphinText = if (Test-Path $dolphinIni) { Get-Content $dolphinIni -Raw } else { '' }
+if ($dolphinText -notmatch '(?m)^\[Core\]\s*$') { $dolphinText += "`r`n[Core]`r`n" }
+foreach ($setting in @{'SIDevice0'='6'; 'SIDevice1'='0'; 'SIDevice2'='0'; 'SIDevice3'='0'}.GetEnumerator()) {
+    if ($dolphinText -match "(?m)^$($setting.Key)\s*=") {
+        $dolphinText = [regex]::Replace($dolphinText, "(?m)^$($setting.Key)\s*=.*$", "$($setting.Key) = $($setting.Value)")
+    } else {
+        $dolphinText = $dolphinText -replace '(?m)^\[Core\]\s*$', "[Core]`r`n$($setting.Key) = $($setting.Value)"
+    }
+}
+if ($dolphinText -notmatch '(?m)^\[Input\]\s*$') { $dolphinText += "`r`n[Input]`r`n" }
+if ($dolphinText -match '(?m)^BackgroundInput\s*=') {
+    $dolphinText = [regex]::Replace($dolphinText, '(?m)^BackgroundInput\s*=.*$', 'BackgroundInput = True')
+} else {
+    $dolphinText = $dolphinText -replace '(?m)^\[Input\]\s*$', "[Input]`r`nBackgroundInput = True"
+}
+[IO.File]::WriteAllText($dolphinIni, $dolphinText, [Text.UTF8Encoding]::new($false))
+
 $configDir = Join-Path $env:APPDATA 'SlayTheSpire2'
 $configPath = Join-Path $configDir 'spire-showdown.json'
 New-Item -ItemType Directory -Force $configDir | Out-Null

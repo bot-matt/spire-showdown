@@ -142,6 +142,86 @@ mv -f "$install_dir/.Spire-Showdown-Slippi.new" "$installed_slippi"
 cmp -s "$appimage" "$installed_slippi" \
   || die 'installed Slippi AppImage does not match the release payload'
 
+note 'Configuring the active Steam gamepad for Player 1'
+slippi_config_dir="$HOME/.config/SlippiOnline/Config"
+mkdir -p "$slippi_config_dir"
+controller_name=$(python3 - <<'PY'
+import pathlib
+
+# Steam exposes the controller used by the game as an evdev joystick to child
+# processes too. Prefer that virtual pad, then the first joystick-capable pad.
+candidates = []
+for joystick in pathlib.Path("/sys/class/input").glob("js*"):
+    device = joystick / "device"
+    try:
+        name = (device / "name").read_text().strip().replace(" ", "")
+    except OSError:
+        continue
+    candidates.append(name)
+for name in candidates:
+    if "steam" in name.lower() or "gamepad" in name.lower():
+        print(name)
+        break
+else:
+    if candidates:
+        print(candidates[0])
+PY
+)
+if [[ -n "$controller_name" ]]; then
+  python3 - "$slippi_config_dir/GCPadNew.ini" "$controller_name" <<'PY'
+import pathlib, sys
+path, name = pathlib.Path(sys.argv[1]), sys.argv[2]
+path.write_text(f'''[GCPad1]
+Device = evdev/0/{name}
+Buttons/A = `Button 0`
+Buttons/B = `Button 1`
+Buttons/X = `Button 2`
+Buttons/Y = `Button 3`
+Buttons/Z = `Button 5`
+Buttons/Start = `Button 7`
+Main Stick/Up = `Axis 1-`
+Main Stick/Down = `Axis 1+`
+Main Stick/Left = `Axis 0-`
+Main Stick/Right = `Axis 0+`
+C-Stick/Up = `Axis 4-`
+C-Stick/Down = `Axis 4+`
+C-Stick/Left = `Axis 3-`
+C-Stick/Right = `Axis 3+`
+Triggers/L = `Axis 2+`
+Triggers/R = `Axis 5+`
+D-Pad/Up = `Axis 7-`
+D-Pad/Down = `Axis 7+`
+D-Pad/Left = `Axis 6-`
+D-Pad/Right = `Axis 6+`
+Rumble/Motor = Motor
+[GCPad2]
+[GCPad3]
+[GCPad4]
+''')
+PY
+  python3 - "$slippi_config_dir/Dolphin.ini" <<'PY'
+import configparser, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+config = configparser.ConfigParser(strict=False)
+config.optionxform = str
+if path.exists():
+    config.read(path)
+if not config.has_section("Core"):
+    config.add_section("Core")
+config.set("Core", "SIDevice0", "6")
+for port in range(1, 4):
+    config.set("Core", f"SIDevice{port}", "0")
+if not config.has_section("Input"):
+    config.add_section("Input")
+config.set("Input", "BackgroundInput", "True")
+with path.open("w") as output:
+    config.write(output, space_around_delimiters=True)
+PY
+  note "Mapped Player 1 to $controller_name"
+else
+  note 'No gamepad was visible; connect it and rerun this installer'
+fi
+
 config_dir="$HOME/.local/share/SlayTheSpire2"
 config_path="$config_dir/spire-showdown.json"
 mkdir -p "$config_dir"
