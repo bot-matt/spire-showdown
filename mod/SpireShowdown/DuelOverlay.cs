@@ -144,7 +144,43 @@ internal sealed partial class DuelOverlay : CanvasLayer
         var joypads = Input.GetConnectedJoypads();
         if (LastActiveJoypad >= 0 && joypads.Contains(LastActiveJoypad))
             return Input.GetJoyName(LastActiveJoypad);
-        return joypads.Count > 0 ? Input.GetJoyName(joypads[0]) : null;
+        if (joypads.Count > 0)
+            return Input.GetJoyName(joypads[0]);
+        if (OperatingSystem.IsWindows())
+            return "Steam Input / XInput Controller";
+        return DetectLinuxGamepad();
+    }
+
+    private static string? DetectLinuxGamepad()
+    {
+        const string inputRoot = "/sys/class/input";
+        if (!Directory.Exists(inputRoot))
+            return null;
+        var names = new List<string>();
+        foreach (var joystick in Directory.EnumerateDirectories(inputRoot, "js*"))
+        {
+            try
+            {
+                var name = File.ReadAllText(Path.Combine(joystick, "device", "name")).Trim();
+                var lower = name.ToLowerInvariant();
+                if (lower.Contains("mouse") || lower.Contains("tablet")
+                    || lower.Contains("touch") || lower.Contains("keyboard")
+                    || lower.Contains("pen"))
+                    continue;
+                names.Add(name);
+            }
+            catch (IOException)
+            {
+                // A hot-unplugged device can disappear during enumeration.
+            }
+        }
+        return names.FirstOrDefault(name =>
+                name.Contains("steam", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("xbox", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("x-box", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("gamepad", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("controller", StringComparison.OrdinalIgnoreCase))
+            ?? names.FirstOrDefault();
     }
 
     public override void _Input(InputEvent @event)
