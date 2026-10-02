@@ -3,7 +3,7 @@
   "name": "Spire Showdown",
   "author": "Spire Showdown contributors",
   "description": "Resolve contested multiplayer relics with a one-stock Slippi Melee duel.",
-  "version": "v0.2.0-alpha.5",
+  "version": "v0.2.0-alpha.6",
   "min_game_version": "0.107.0",
   "has_pck": false,
   "has_dll": true,

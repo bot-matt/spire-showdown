@@ -54,6 +54,11 @@ data directory. Slippi, ISO, and connect code are normally auto-detected. The
 file accepts `slippi_path`, `melee_iso_path`, and `connect_code` overrides when
 automatic discovery cannot find one of them.
 
+On the main menu, choose **Controller Settings** beneath the version badge.
+**Auto-detect** follows the last gamepad used in Spire; **GameCube USB adapter**
+keeps Slippi's native adapter mode. The choice is saved and applied before each
+duel, so changing it does not require reinstalling the mod.
+
 On Bazzite, add `--display-driver x11` to Slay the Spire 2's Steam launch
 options. The embedded Slippi window uses X11/XWayland re-parenting, which is not
 available when the game itself runs as a native Wayland surface.

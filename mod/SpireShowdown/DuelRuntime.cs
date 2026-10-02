@@ -18,6 +18,7 @@ internal static class DuelRuntime
     private static DuelOverlay? _overlay;
     private static string? _localConnectCode;
     private static SpireShowdownSettings? _settings;
+    private static string? _settingsPath;
     private static int _shutdownStarted;
 
     public static bool BypassHook => Bypass.Value;
@@ -27,11 +28,14 @@ internal static class DuelRuntime
     {
         var (settings, settingsPath) = SpireShowdownSettings.Load();
         _settings = settings;
+        _settingsPath = settingsPath;
         var tree = Engine.GetMainLoop() as SceneTree
             ?? throw new InvalidOperationException("Godot scene tree is unavailable");
         _overlay = new DuelOverlay { Name = "SpireShowdownOverlay" };
         _overlay.SmokeTestRequested += () => _ = RunSoloSmokeTestAsync();
+        _overlay.ControllerModeSaved += SaveControllerMode;
         tree.Root.AddChild(_overlay);
+        _overlay.SetControllerMode(settings.ControllerMode);
         if (OperatingSystem.IsLinux()
             && !DisplayServer.GetName().Equals("x11", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
@@ -157,6 +161,8 @@ internal static class DuelRuntime
                 negotiationTimeout.Token);
             var duel = duelTemplate with { OpponentConnectCode = opponentCode };
             duelId = duel.DuelId;
+
+            ApplyControllerSettings();
 
             var started = await _bridge.Client.SendAsync(
                 "start_duel",
@@ -305,6 +311,131 @@ internal static class DuelRuntime
         !string.IsNullOrWhiteSpace(value)
         && value.Length <= 9
         && value.Contains('#', StringComparison.Ordinal);
+
+    private static void SaveControllerMode(string mode)
+    {
+        if (_settings is null || _settingsPath is null)
+            return;
+        _settings = _settings with { ControllerMode = mode };
+        _settings.Save(_settingsPath);
+        MainFile.Logger.Info($"Controller mode saved: {mode}");
+    }
+
+    private static void ApplyControllerSettings()
+    {
+        if (_settings is null)
+            return;
+        var adapter = _settings.ControllerMode == "gamecube_adapter";
+        var configDir = ControllerConfigDirectory(_settings.SlippiPath);
+        Directory.CreateDirectory(configDir);
+        var dolphinPath = Path.Combine(configDir, "Dolphin.ini");
+        UpsertIniValue(dolphinPath, "Core", "SIDevice0", adapter ? "12" : "6");
+        for (var port = 1; port < 4; port++)
+            UpsertIniValue(dolphinPath, "Core", $"SIDevice{port}", "0");
+        UpsertIniValue(dolphinPath, "Input", "BackgroundInput", "True");
+        if (adapter)
+            return;
+
+        var name = _overlay?.ActiveControllerName()
+            ?? throw new InvalidOperationException(
+                "No controller is connected to Spire. Open Controller Settings or select GameCube Adapter.");
+        var profile = OperatingSystem.IsWindows()
+            ? WindowsGamepadProfile
+            : LinuxGamepadProfile(name.Replace(" ", "", StringComparison.Ordinal));
+        File.WriteAllText(Path.Combine(configDir, "GCPadNew.ini"), profile);
+        MainFile.Logger.Info($"Mapped Slippi Player 1 to Spire controller: {name}");
+    }
+
+    private static string ControllerConfigDirectory(string? slippiPath)
+    {
+        if (OperatingSystem.IsWindows() && !string.IsNullOrWhiteSpace(slippiPath))
+            return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(slippiPath))!, "User", "Config");
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+        return Path.Combine(home, ".config", "SlippiOnline", "Config");
+    }
+
+    private static void UpsertIniValue(string path, string section, string key, string value)
+    {
+        var lines = File.Exists(path) ? File.ReadAllLines(path).ToList() : new List<string>();
+        var sectionLine = $"[{section}]";
+        var start = lines.FindIndex(line => line.Trim().Equals(sectionLine, StringComparison.OrdinalIgnoreCase));
+        if (start < 0)
+        {
+            if (lines.Count > 0 && lines[^1].Length != 0)
+                lines.Add("");
+            start = lines.Count;
+            lines.Add(sectionLine);
+        }
+        var end = lines.FindIndex(start + 1, line => line.TrimStart().StartsWith("[", StringComparison.Ordinal));
+        if (end < 0)
+            end = lines.Count;
+        var existing = lines.FindIndex(start + 1, end - start - 1, line =>
+            line.TrimStart().StartsWith(key + " ", StringComparison.OrdinalIgnoreCase)
+            || line.TrimStart().StartsWith(key + "=", StringComparison.OrdinalIgnoreCase));
+        if (existing >= 0)
+            lines[existing] = $"{key} = {value}";
+        else
+            lines.Insert(end, $"{key} = {value}");
+        File.WriteAllLines(path, lines);
+    }
+
+    private const string WindowsGamepadProfile = """
+[GCPad1]
+Device = XInput/0/Gamepad
+Buttons/A = `Button A`
+Buttons/B = `Button B`
+Buttons/X = `Button X`
+Buttons/Y = `Button Y`
+Buttons/Z = `Shoulder R`
+Buttons/Start = `Start`
+Main Stick/Up = `Left Y+`
+Main Stick/Down = `Left Y-`
+Main Stick/Left = `Left X-`
+Main Stick/Right = `Left X+`
+C-Stick/Up = `Right Y+`
+C-Stick/Down = `Right Y-`
+C-Stick/Left = `Right X-`
+C-Stick/Right = `Right X+`
+Triggers/L = `Trigger L`
+Triggers/R = `Trigger R`
+D-Pad/Up = `Pad N`
+D-Pad/Down = `Pad S`
+D-Pad/Left = `Pad W`
+D-Pad/Right = `Pad E`
+Rumble/Motor = `Motor L` | `Motor R`
+[GCPad2]
+[GCPad3]
+[GCPad4]
+""";
+
+    private static string LinuxGamepadProfile(string name) => $$"""
+[GCPad1]
+Device = evdev/0/{{name}}
+Buttons/A = `Button 0`
+Buttons/B = `Button 1`
+Buttons/X = `Button 2`
+Buttons/Y = `Button 3`
+Buttons/Z = `Button 5`
+Buttons/Start = `Button 7`
+Main Stick/Up = `Axis 1-`
+Main Stick/Down = `Axis 1+`
+Main Stick/Left = `Axis 0-`
+Main Stick/Right = `Axis 0+`
+C-Stick/Up = `Axis 4-`
+C-Stick/Down = `Axis 4+`
+C-Stick/Left = `Axis 3-`
+C-Stick/Right = `Axis 3+`
+Triggers/L = `Axis 2+`
+Triggers/R = `Axis 5+`
+D-Pad/Up = `Axis 7-`
+D-Pad/Down = `Axis 7+`
+D-Pad/Left = `Axis 6-`
+D-Pad/Right = `Axis 6+`
+Rumble/Motor = Motor
+[GCPad2]
+[GCPad3]
+[GCPad4]
+""";
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
