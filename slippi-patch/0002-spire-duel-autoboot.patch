@@ -51,14 +51,14 @@ index 08699774ef724da8edadfcaafea1818b79793173..44aaa6fad8887032550a346c649c7956
 +FN_IS_SPIRE_DUEL:
 +backup
 +
-+li r3, 1
++li r3, 8
 +branchl r12, HSD_MemAlloc
 +mr r20, r3
 +li r3, CONST_SlippiCmdGetSpireDuel
 +stb r3, 0(r20)
 +
 +mr r3, r20
-+li r4, 1
++li r4, 8
 +li r5, CONST_ExiWrite
 +branchl r12, FN_EXITransferBuffer
 +
@@ -90,7 +90,7 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
  
  # Get static function table
  branchl r12, FG_UserDisplay
-@@ -54,6 +55,36 @@ addi r12, r30, 0xC # FN_FetchSlippiAppState
+@@ -54,6 +55,49 @@ addi r12, r30, 0xC # FN_FetchSlippiAppState
  mtctr r12
  bctrl
  
@@ -109,11 +109,24 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
 +li r5, CONST_ExiRead
 +branchl r12, FN_EXITransferBuffer
 +lbz r28, 0(r29)
++lbz r27, 1(r29)
 +mr r3, r29
 +branchl r12, HSD_Free
 +
 +cmpwi r28, 0
 +beq FN_OnFirstMenuLoad_NORMAL
++
++cmpwi r27, 0
++beq FN_OnFirstMenuLoad_ONLINE
++
++# CPU tests use Melee's built-in debug-VS scene. The injected scene setup
++# below replaces its defaults with the Spire contract before READY... GO!.
++li r3, 0x0E
++branchl r12, 0x801A42E8
++branchl r12, 0x801A42D4
++b FN_OnFirstMenuLoad_RESTORE_HANDLER
++
++FN_OnFirstMenuLoad_ONLINE:
 +
 +# The StS overlay remains visible while this hidden CSS performs matchmaking.
 +li r3, ONLINE_MODE_DIRECT
@@ -127,7 +140,7 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
  # Set the submenu to go to
  li r0, 8 # Go to submenu 0x8 (Online Play)
  stb r0, 0(r31)
-@@ -65,12 +96,14 @@ bctrl
+@@ -65,12 +109,14 @@ bctrl
  mr r0, r3 # Option to select
  stb r0, 0x1(r31)
  
@@ -140,5 +153,64 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
  # Go to end of function
 +restore
  branch r12, 0x801b136c
- 
+
  ################################################################################
+diff --git a/Online/Menus/SpireCpu/ConfigureDebugVs.asm b/Online/Menus/SpireCpu/ConfigureDebugVs.asm
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/Online/Menus/SpireCpu/ConfigureDebugVs.asm
+@@ -0,0 +1,53 @@
++#To be inserted at 801b1428
++.include "../../../Common/Common.s"
++
++# r28 is StartMeleeData after Melee initialized all rule/player defaults.
++# Read the eight-byte Spire contract from Dolphin.
++li r3, 8
++branchl r12, HSD_MemAlloc
++mr r27, r3
++li r3, CONST_SlippiCmdGetSpireDuel
++stb r3, 0(r27)
++mr r3, r27
++li r4, 1
++li r5, CONST_ExiWrite
++branchl r12, FN_EXITransferBuffer
++mr r3, r27
++li r4, 8
++li r5, CONST_ExiRead
++branchl r12, FN_EXITransferBuffer
++
++# Stock rules, selected legal stage, one-stock human P1 versus level-5 CPU P2.
++lbz r3, 0(r28)
++rlwinm r3, r3, 0, 27, 31
++ori r3, r3, 0x20
++stb r3, 0(r28)
++lbz r3, 2(r28)
++ori r3, r3, 0x80
++stb r3, 2(r28)
++lhz r3, 4(r27)
++sth r3, 0x0E(r28)
++
++lbz r3, 2(r27)
++stb r3, 0x60(r28)
++li r3, 0
++stb r3, 0x61(r28)
++lbz r3, 6(r27)
++stb r3, 0x62(r28)
++
++lbz r3, 3(r27)
++stb r3, 0x84(r28)
++li r3, 1
++stb r3, 0x85(r28)
++lbz r3, 6(r27)
++stb r3, 0x86(r28)
++lbz r3, 7(r27)
++stb r3, 0x93(r28)
++
++li r3, 3
++stb r3, 0xA9(r28)
++stb r3, 0xCD(r28)
++
++mr r3, r27
++branchl r12, HSD_Free
++branch r12, 0x801b1488

@@ -194,7 +194,7 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
             guard.discovery = Some(report.clone());
             Response::Preflight { report }
         }
-        Request::StartDuel { duel } => {
+        Request::StartDuel { duel } | Request::StartCpuTest { duel } => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
             if let Err(message) = guard.machine.transition(DuelState::Launching) {
                 return error_response("invalid_state", message, true);
@@ -232,44 +232,6 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                 }
             }
         }
-        Request::StartSmokeTest { playback, replay } => {
-            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
-            if let Err(message) = guard.machine.transition(DuelState::Launching) {
-                return error_response("invalid_state", message, true);
-            }
-            let Some(iso) = guard
-                .discovery
-                .as_ref()
-                .and_then(|report| report.melee_iso.as_ref())
-            else {
-                let _ = guard.machine.transition(DuelState::Failed);
-                return error_response(
-                    "preflight_required",
-                    "run preflight before smoke testing",
-                    true,
-                );
-            };
-            match SlippiProcess::launch_smoke_test(&playback, &iso.path, &replay) {
-                Ok(mut process) => {
-                    let pid = process.pid();
-                    let duel_id = process.duel_id().to_owned();
-                    if let Err(message) = guard.embedder.prepare(pid) {
-                        let _ = process.stop();
-                        let _ = guard.machine.transition(DuelState::Failed);
-                        return error_response("window_prepare_failed", message, true);
-                    }
-                    guard.slippi = Some(process);
-                    Response::Started {
-                        duel_id,
-                        slippi_pid: pid,
-                    }
-                }
-                Err(message) => {
-                    let _ = guard.machine.transition(DuelState::Failed);
-                    error_response("slippi_launch_failed", message, true)
-                }
-            }
-        }
         Request::AttachWindow {
             parent_handle,
             bounds,
@@ -283,16 +245,6 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                     guard.window_attached = true;
                     if guard.machine.state() == DuelState::Launching {
                         if let Err(message) = guard.machine.transition(DuelState::Connecting) {
-                            return error_response("invalid_state", message, true);
-                        }
-                    }
-                    if guard
-                        .slippi
-                        .as_ref()
-                        .is_some_and(SlippiProcess::is_smoke_test)
-                        && guard.machine.state() == DuelState::Connecting
-                    {
-                        if let Err(message) = guard.machine.transition(DuelState::Playing) {
                             return error_response("invalid_state", message, true);
                         }
                     }

@@ -241,7 +241,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
     {
         _elapsed = 0;
         _relic.Texture = null;
-        _baseStatus = "Loading solo arena test";
+        _baseStatus = "Loading one-stock CPU fight";
         _status.Text = _baseStatus;
         _backdrop.Visible = true;
         SetProcess(true);
