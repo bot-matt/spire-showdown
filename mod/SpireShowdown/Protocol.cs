@@ -40,7 +40,9 @@ public sealed record DuelSpec(
     [property: JsonPropertyName("local_character")] byte LocalCharacter,
     [property: JsonPropertyName("remote_character")] byte RemoteCharacter,
     [property: JsonPropertyName("stage")] ushort Stage,
-    [property: JsonPropertyName("stocks")] byte Stocks = 1);
+    [property: JsonPropertyName("stocks")] byte Stocks = 1,
+    [property: JsonPropertyName("cpu_test")] bool CpuTest = false,
+    [property: JsonPropertyName("cpu_level")] byte CpuLevel = 5);
 
 public sealed record Bounds(
     [property: JsonPropertyName("x")] int X,

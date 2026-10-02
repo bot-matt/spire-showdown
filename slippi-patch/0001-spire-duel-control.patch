@@ -25,7 +25,7 @@ index 27c5a5d..bd838ea 100644
  #include <utility> // std::move
  
  #include "Common/CommonPaths.h"
-@@ -199,12 +202,94 @@ CEXISlippi::CEXISlippi()
+@@ -199,12 +202,97 @@ CEXISlippi::CEXISlippi()
  	    0x1F, // Battlefield
  	    0x20, // Final Destination
  	};
@@ -80,6 +80,8 @@ index 27c5a5d..bd838ea 100644
 +	spireDuel.remoteCharacter = config["remote_character"].get<u8>();
 +	spireDuel.stage = config["stage"].get<u16>();
 +	spireDuel.stocks = config["stocks"].get<u8>();
++	spireDuel.cpuTest = config.value("cpu_test", false);
++	spireDuel.cpuLevel = config.value("cpu_level", 5);
 +
 +	const bool safeId = !spireDuel.duelId.empty() && spireDuel.duelId.size() <= 64 &&
 +	                    std::all_of(spireDuel.duelId.begin(), spireDuel.duelId.end(), [](char value) {
@@ -89,8 +91,9 @@ index 27c5a5d..bd838ea 100644
 +	const bool validCode = !spireDuel.opponentConnectCode.empty() && spireDuel.opponentConnectCode.size() <= 9 &&
 +	                       spireDuel.opponentConnectCode.find('#') != std::string::npos;
 +	const bool legalStage = std::find(allowedStages.begin(), allowedStages.end(), spireDuel.stage) != allowedStages.end();
-+	if (!safeId || !validCode || spireDuel.localCharacter >= 26 || spireDuel.remoteCharacter >= 26 ||
-+	    !legalStage || spireDuel.stocks != 1)
++	if (!safeId || (!spireDuel.cpuTest && !validCode) || spireDuel.localCharacter >= 26 ||
++	    spireDuel.remoteCharacter >= 26 || !legalStage || spireDuel.stocks != 1 ||
++	    spireDuel.cpuLevel < 1 || spireDuel.cpuLevel > 9)
 +	{
 +		forcedError = "Spire Showdown duel settings failed validation";
 +		ERROR_LOG(SLIPPI_ONLINE, "%s", forcedError.c_str());
@@ -186,7 +189,7 @@ index 27c5a5d..bd838ea 100644
  	int stageId = Common::FromBigEndian(*(u16 *)&query.gameInfoBlock[0xE]);
  	u8 gameEndMethod = query.gameEndMethod;
  	s8 lrasInitiator = query.lrasInitiator;
-@@ -3372,6 +3484,12 @@ void CEXISlippi::handleGetRank()
+@@ -3372,6 +3484,19 @@ void CEXISlippi::handleGetRank()
  	m_read_queue.push_back(static_cast<u8>(rank_info.rank_change));
  }
  
@@ -194,6 +197,13 @@ index 27c5a5d..bd838ea 100644
 +{
 +	m_read_queue.clear();
 +	m_read_queue.push_back(spireDuel.enabled ? 1 : 0);
++	m_read_queue.push_back(spireDuel.cpuTest ? 1 : 0);
++	m_read_queue.push_back(spireDuel.localCharacter);
++	m_read_queue.push_back(spireDuel.remoteCharacter);
++	m_read_queue.push_back(static_cast<u8>(spireDuel.stage >> 8));
++	m_read_queue.push_back(static_cast<u8>(spireDuel.stage));
++	m_read_queue.push_back(spireDuel.stocks);
++	m_read_queue.push_back(spireDuel.cpuLevel);
 +}
 +
  void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
@@ -256,13 +266,14 @@ index c8fdedb..54cf48e 100644
  
  	// replay playback stuff
  	void prepareGameInfo(u8 *payload);
-@@ -335,6 +338,22 @@ class CEXISlippi : public IEXIDevice
+@@ -335,6 +338,24 @@ class CEXISlippi : public IEXIDevice
  
  	std::string forcedError = "";
  
 +	struct SpireDuelSettings
 +	{
 +		bool enabled = false;
++		bool cpuTest = false;
 +		bool readyReported = false;
 +		std::string duelId;
 +		std::string opponentConnectCode;
@@ -271,6 +282,7 @@ index c8fdedb..54cf48e 100644
 +		u8 remoteCharacter = 0;
 +		u16 stage = 0;
 +		u8 stocks = 0;
++		u8 cpuLevel = 5;
 +	};
 +	SpireDuelSettings spireDuel;
 +	void loadSpireDuelSettings();

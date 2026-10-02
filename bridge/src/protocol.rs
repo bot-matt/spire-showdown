@@ -24,10 +24,7 @@ pub enum Request {
     StartDuel {
         duel: DuelSpec,
     },
-    StartSmokeTest {
-        playback: PathBuf,
-        replay: PathBuf,
-    },
+    StartCpuTest { duel: DuelSpec },
     AttachWindow {
         parent_handle: u64,
         bounds: Bounds,
@@ -52,6 +49,14 @@ pub struct DuelSpec {
     pub remote_character: u8,
     pub stage: u16,
     pub stocks: u8,
+    #[serde(default)]
+    pub cpu_test: bool,
+    #[serde(default = "default_cpu_level")]
+    pub cpu_level: u8,
+}
+
+fn default_cpu_level() -> u8 {
+    5
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

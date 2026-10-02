@@ -94,36 +94,40 @@ internal static class DuelRuntime
         string? duelId = null;
         try
         {
-            var playback = FindPlayback(_settings.PlaybackPath)
-                ?? throw new FileNotFoundException(
-                    "Slippi Playback was not found; set playback_path in spire-showdown.json");
-            var replay = FindReplay(_settings.ReplayPath)
-                ?? throw new FileNotFoundException(
-                    "No .slp replay was found; set replay_path in spire-showdown.json");
-
             _overlay.ShowSmokeTestLoading();
+            ApplyControllerSettings();
+            var seed = BinaryPrimitives.ReadUInt64LittleEndian(
+                System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));
+            var rules = DuelCoordinator.SelectRules(seed, 26);
+            duelId = $"cpu-test-{seed:x16}";
+            var duel = new DuelSpec(
+                duelId, seed, "", rules.FirstCharacter, rules.SecondCharacter,
+                rules.Stage, 1, true, 5);
             var started = await _bridge.Client.SendAsync(
-                "start_smoke_test",
-                new { playback, replay },
+                "start_cpu_test",
+                new { duel },
                 CancellationToken.None);
             started.Require("started");
-            duelId = started.String("duel_id")
-                ?? throw new InvalidDataException("Bridge omitted its smoke-test ID.");
 
+            using var launchTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
             var target = _overlay.GetNativeTarget();
             var attached = await _bridge.Client.SendAsync(
                 "attach_window",
                 new { parent_handle = target.ParentHandle, bounds = target.Bounds },
-                CancellationToken.None);
+                launchTimeout.Token);
             attached.Require("accepted");
+            await WaitForPhaseAsync(_bridge.Client, "ready", launchTimeout.Token);
             _overlay.HideOverlay();
-            MainFile.Logger.Info(
-                $"Solo embed smoke test is playing {Path.GetFileName(replay)} for 30 seconds.");
-            await Task.Delay(TimeSpan.FromSeconds(30));
+            using var matchTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            await WaitForPhaseAsync(_bridge.Client, "completed", matchTimeout.Token);
+            var finished = await _bridge.Client.SendAsync(
+                "finish_duel", new { duel_id = duelId }, CancellationToken.None);
+            finished.Require("accepted");
+            duelId = null;
         }
         catch (Exception error)
         {
-            MainFile.Logger.Error($"Solo embed smoke test failed: {error}");
+            MainFile.Logger.Error($"Solo CPU fight failed: {error}");
         }
         finally
         {
