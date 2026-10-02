@@ -12,7 +12,7 @@ index f08779f..befbd10 100644
  	bool m_blockingPipes = false;
  	bool m_coutEnabled = false;
 diff --git a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
-index 27c5a5d..bd838ea 100644
+index 27c5a5d..a9aa44c 100644
 --- a/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
 +++ b/Source/Core/Core/HW/EXI_DeviceSlippi.cpp
 @@ -10,6 +10,9 @@
@@ -123,7 +123,7 @@ index 27c5a5d..bd838ea 100644
  CEXISlippi::~CEXISlippi()
  {
  	u8 empty[1];
-@@ -1921,6 +2006,13 @@ void CEXISlippi::startFindMatch(u8 *payload)
+@@ -1921,6 +2009,13 @@ void CEXISlippi::startFindMatch(u8 *payload)
  	std::string shiftJisCode;
  	shiftJisCode.insert(shiftJisCode.begin(), &payload[1], &payload[1] + 18);
  	shiftJisCode.erase(std::find(shiftJisCode.begin(), shiftJisCode.end(), 0x00), shiftJisCode.end());
@@ -137,7 +137,7 @@ index 27c5a5d..bd838ea 100644
  
  	// Log the direct code to file.
  	if (search.mode == SlippiMatchmaking::DIRECT)
-@@ -2393,6 +2485,17 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2393,6 +2488,17 @@ void CEXISlippi::prepareOnlineMatchState()
  		{
  			orderedSelections[rps[i].playerIdx] = &rps[i];
  		}
@@ -155,7 +155,7 @@ index 27c5a5d..bd838ea 100644
  
  		// Overwrite selections
  		for (int i = 0; i < overwrite_selections.size(); i++)
-@@ -2570,7 +2672,8 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2570,7 +2676,8 @@ void CEXISlippi::prepareOnlineMatchState()
  		// restored to the defaults. The timer is handled further down, after the mode's default timer is set
  		for (int i = 0; i < 4; i++)
  		{
@@ -165,7 +165,7 @@ index 27c5a5d..bd838ea 100644
  
  			u16 *current_health = reinterpret_cast<u16 *>(&onlineMatchBlock[0x70 + i * 0x24]);
  			*current_health = Common::swap16(desync_recovery.state.fighters[i].current_health);
-@@ -2778,7 +2881,16 @@ void CEXISlippi::setMatchSelections(u8 *payload)
+@@ -2778,7 +2885,16 @@ void CEXISlippi::setMatchSelections(u8 *payload)
  	s.alt_stage_mode = payload[8];
  
  	s.isStageSelected = stageSelectOption == 1 || stageSelectOption == 3;
@@ -183,7 +183,7 @@ index 27c5a5d..bd838ea 100644
  	{
  		// If stage requested is random, select a random stage
  		s.stageId = getRandomStage();
-@@ -3113,6 +3223,8 @@ void CEXISlippi::handleReportGame(const SlippiExiTypes::ReportGameQuery &query)
+@@ -3113,6 +3229,8 @@ void CEXISlippi::handleReportGame(const SlippiExiTypes::ReportGameQuery &query)
  	u32 gameIndex = query.gameIndex;
  	u32 tiebreakIndex = query.tiebreakIndex;
  	s8 winnerIdx = query.winnerIdx;
@@ -192,7 +192,7 @@ index 27c5a5d..bd838ea 100644
  	int stageId = Common::FromBigEndian(*(u16 *)&query.gameInfoBlock[0xE]);
  	u8 gameEndMethod = query.gameEndMethod;
  	s8 lrasInitiator = query.lrasInitiator;
-@@ -3372,6 +3484,19 @@ void CEXISlippi::handleGetRank()
+@@ -3372,6 +3490,19 @@ void CEXISlippi::handleGetRank()
  	m_read_queue.push_back(static_cast<u8>(rank_info.rank_change));
  }
  
@@ -212,10 +212,23 @@ index 27c5a5d..bd838ea 100644
  void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  {
  	u8 *memPtr = Memory::GetPointer(_uAddr);
-@@ -3436,6 +3554,16 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
+@@ -3435,6 +3566,28 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
+ 			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
  			m_slippiserver->endGame();
  			slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
- 			break;
++			// Offline CPU games never issue the online CMD_REPORT_GAME query.
++			// Use the standard recording event's finalized placements instead.
++			if (spireDuel.enabled && spireDuel.cpuTest && payloadLen >= 6)
++			{
++				const u8 *end = &memPtr[bufLoc];
++				int winner = -1;
++				if (end[1] == 7 && end[2] < 2)
++					winner = 1 - end[2];
++				else if (end[3] != 255 && end[4] != 255 && end[3] != end[4])
++					winner = end[3] < end[4] ? 0 : 1;
++				reportSpireDuelStatus(winner < 0 ? "cancelled" : "completed", winner);
++			}
++			break;
 +		case CMD_RECEIVE_GAME_INFO:
 +			writeToFileAsync(&memPtr[bufLoc], payloadLen + 1, "");
 +			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
@@ -225,11 +238,10 @@ index 27c5a5d..bd838ea 100644
 +				spireDuel.readyReported = true;
 +				reportSpireDuelStatus("ready");
 +			}
-+			break;
+ 			break;
  		case CMD_PREPARE_REPLAY:
  			// log.open("log.txt");
- 			prepareGameInfo(&memPtr[bufLoc + 1]);
-@@ -3574,6 +3702,9 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
+@@ -3574,6 +3727,9 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
  			slprs_fetch_match_result(slprs_exi_device_ptr, recentMmResult.id.c_str());
  			break;
  		}
@@ -240,7 +252,7 @@ index 27c5a5d..bd838ea 100644
  			writeToFileAsync(&memPtr[bufLoc], payloadLen + 1, "");
  			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
 diff --git a/Source/Core/Core/HW/EXI_DeviceSlippi.h b/Source/Core/Core/HW/EXI_DeviceSlippi.h
-index c8fdedb..54cf48e 100644
+index c8fdedb..f228e82 100644
 --- a/Source/Core/Core/HW/EXI_DeviceSlippi.h
 +++ b/Source/Core/Core/HW/EXI_DeviceSlippi.h
 @@ -107,7 +107,8 @@ class CEXISlippi : public IEXIDevice
@@ -293,6 +305,38 @@ index c8fdedb..54cf48e 100644
 +
  	// Used to determine when to detect when a new session has started
  	bool isPlaySessionActive = false;
+ 
+diff --git a/Source/Core/DolphinWX/FrameTools.cpp b/Source/Core/DolphinWX/FrameTools.cpp
+index 4e63b2f..96527f2 100644
+--- a/Source/Core/DolphinWX/FrameTools.cpp
++++ b/Source/Core/DolphinWX/FrameTools.cpp
+@@ -648,6 +648,13 @@ void CFrame::StartGame(const std::string& filename)
+ 	if (m_bGameLoading)
+ 		return;
+ 	m_bGameLoading = true;
++	const bool spireArena = !SConfig::GetInstance().m_spireDuelFile.empty();
++	if (spireArena)
++	{
++		SConfig::GetInstance().bFullscreen = false;
++		SConfig::GetInstance().bRenderToMain = false;
++		SConfig::GetInstance().bKeepWindowOnTop = false;
++	}
+ 
+ 	GetToolBar()->EnableTool(IDM_PLAY, false);
+ 	GetMenuBar()->FindItem(IDM_PLAY)->Enable(false);
+@@ -707,6 +714,13 @@ void CFrame::StartGame(const std::string& filename)
+ 		m_RenderParent = new wxPanel(m_RenderFrame, IDM_MPANEL, wxDefaultPosition, wxDefaultSize, 0);
+ #endif
+ 
++		if (spireArena)
++		{
++			// The bridge finds this exact surface, then reparents it into Spire.
++			// Mapping offscreen avoids showing a separate desktop window first.
++			m_RenderFrame->SetTitle("Spire Showdown Arena");
++			m_RenderFrame->Move(-30000, -30000);
++		}
+ 		m_RenderFrame->Show();
+ 	}
  
 diff --git a/Source/Core/DolphinWX/Main.cpp b/Source/Core/DolphinWX/Main.cpp
 index c266fb9..bd16ad4 100644

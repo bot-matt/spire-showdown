@@ -1,5 +1,5 @@
 diff --git a/Common/Common.s b/Common/Common.s
-index 71d9cfa792e750391a822d43fbbcaeeb5365e6bf..a9bf1a53ddf01b706a4a92df066339f3f394de1e 100644
+index 71d9cfa..a9bf1a5 100644
 --- a/Common/Common.s
 +++ b/Common/Common.s
 @@ -544,6 +544,7 @@ add \reg, r3, r4
@@ -11,7 +11,7 @@ index 71d9cfa792e750391a822d43fbbcaeeb5365e6bf..a9bf1a53ddf01b706a4a92df066339f3
  .set CONST_SlippiCmdFileLength, 0xD1
  .set CONST_SlippiCmdFileLoad, 0xD2
 diff --git a/Online/Menus/CSS/HandleInputsOnCSS.asm b/Online/Menus/CSS/HandleInputsOnCSS.asm
-index 08699774ef724da8edadfcaafea1818b79793173..44aaa6fad8887032550a346c649c79563de0b6b7 100644
+index 0869977..44aaa6f 100644
 --- a/Online/Menus/CSS/HandleInputsOnCSS.asm
 +++ b/Online/Menus/CSS/HandleInputsOnCSS.asm
 @@ -119,6 +119,25 @@ cmpwi r3, 0
@@ -51,14 +51,14 @@ index 08699774ef724da8edadfcaafea1818b79793173..44aaa6fad8887032550a346c649c7956
 +FN_IS_SPIRE_DUEL:
 +backup
 +
-+li r3, 8
++li r3, 1
 +branchl r12, HSD_MemAlloc
 +mr r20, r3
 +li r3, CONST_SlippiCmdGetSpireDuel
 +stb r3, 0(r20)
 +
 +mr r3, r20
-+li r4, 8
++li r4, 1
 +li r5, CONST_ExiWrite
 +branchl r12, FN_EXITransferBuffer
 +
@@ -79,23 +79,23 @@ index 08699774ef724da8edadfcaafea1818b79793173..44aaa6fad8887032550a346c649c7956
  ################################################################################
  # Skip starting match
 diff --git a/Online/Slippi Online Scene/boot.asm b/Online/Slippi Online Scene/boot.asm
-index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3e0b441d1 100644
+index 1e52aec..0072026 100644
 --- a/Online/Slippi Online Scene/boot.asm	
 +++ b/Online/Slippi Online Scene/boot.asm	
-@@ -39,6 +39,7 @@ b EXIT
- ################################################################################
- FN_OnFirstMenuLoad_blrl:
- blrl
-+backup
+@@ -1,6 +1,6 @@
+ #To be inserted at 801bfa20
+ .include "../../Common/Common.s"
+-#.include "../Globals.s"
++.include "../Online.s"
+ .include "Header.s"
  
- # Get static function table
- branchl r12, FG_UserDisplay
-@@ -54,6 +55,49 @@ addi r12, r30, 0xC # FN_FetchSlippiAppState
- mtctr r12
- bctrl
+ .set  REG_COUNT,31
+@@ -11,6 +11,33 @@
  
-+# Ask Dolphin whether this launch carries a Spire Showdown duel contract.
-+li r3, 1
+ backup
+ 
++# Choose the CPU scene before entering the first menu.
++li r3, 8
 +branchl r12, HSD_MemAlloc
 +mr r29, r3
 +li r3, CONST_SlippiCmdGetSpireDuel
@@ -105,64 +105,80 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
 +li r5, CONST_ExiWrite
 +branchl r12, FN_EXITransferBuffer
 +mr r3, r29
-+li r4, 1
++li r4, 8
 +li r5, CONST_ExiRead
 +branchl r12, FN_EXITransferBuffer
 +lbz r28, 0(r29)
 +lbz r27, 1(r29)
 +mr r3, r29
 +branchl r12, HSD_Free
-+
-+cmpwi r28, 0
-+beq FN_OnFirstMenuLoad_NORMAL
-+
-+cmpwi r27, 0
-+beq FN_OnFirstMenuLoad_ONLINE
-+
-+# CPU tests use Melee's built-in debug-VS scene. The injected scene setup
-+# below replaces its defaults with the Spire contract before READY... GO!.
++cmpwi r28, 1
++bne NORMAL_BOOT
++cmpwi r27, 1
++bne NORMAL_BOOT
++restore
 +li r3, 0x0E
-+branchl r12, 0x801A42E8
-+branchl r12, 0x801A42D4
-+b FN_OnFirstMenuLoad_RESTORE_HANDLER
++b BOOT_END
 +
-+FN_OnFirstMenuLoad_ONLINE:
-+
-+# The StS overlay remains visible while this hidden CSS performs matchmaking.
++NORMAL_BOOT:
+ load r4, 0x803dd8e8 # Location where scene load handlers start
+ bl FN_OnFirstMenuLoad_blrl
+ mflr r3
+@@ -29,7 +56,23 @@ stw r3, 0xa0(r4) # Overwrite the scene load handler transition from scene 0x28
+     cmpwi REG_COUNT, 4
+     blt LOOP_PRELOAD_START
+ 
+-b EXIT
++cmpwi r28, 1
++bne EXIT
++# Direct-connect duels also select their first major scene here. Initialize
++# the app buffers normally created by the menu before entering online CSS.
++branchl r12, FG_UserDisplay
++mflr r30
++addi r12, r30, 0x14
++mtctr r12
++bctrl
++addi r12, r30, 0xC
++mtctr r12
++bctrl
 +li r3, ONLINE_MODE_DIRECT
 +stb r3, OFST_R13_ONLINE_MODE(r13)
-+li r3, 0x8
-+branchl r12, Event_StoreSceneNumber
-+b FN_OnFirstMenuLoad_RESTORE_HANDLER
-+
-+FN_OnFirstMenuLoad_NORMAL:
-+
- # Set the submenu to go to
- li r0, 8 # Go to submenu 0x8 (Online Play)
- stb r0, 0(r31)
-@@ -65,12 +109,14 @@ bctrl
- mr r0, r3 # Option to select
- stb r0, 0x1(r31)
++restore
++li r3, 8
++b BOOT_END
  
-+FN_OnFirstMenuLoad_RESTORE_HANDLER:
- # Restore original handler, this handler was just a one-shot for boot
- load r4, 0x803dd8e8 # Location where scene load handlers start
- load r3, 0x801b1360 # Original title -> menu transition handler
+ ################################################################################
+ # OnFirstMenuLoad
+@@ -39,6 +82,7 @@ b EXIT
+ ################################################################################
+ FN_OnFirstMenuLoad_blrl:
+ blrl
++backup
+ 
+ # Get static function table
+ branchl r12, FG_UserDisplay
+@@ -71,6 +115,7 @@ load r3, 0x801b1360 # Original title -> menu transition handler
  stw r3, 0xa0(r4)
  
  # Go to end of function
 +restore
  branch r12, 0x801b136c
-
+ 
  ################################################################################
+@@ -79,3 +124,4 @@ branch r12, 0x801b136c
+ EXIT:
+ restore
+ li r3, 0x1 # Load menu first
++BOOT_END:
 diff --git a/Online/Menus/SpireCpu/ConfigureDebugVs.asm b/Online/Menus/SpireCpu/ConfigureDebugVs.asm
 new file mode 100644
-index 0000000..1111111
+index 0000000..3259390
 --- /dev/null
 +++ b/Online/Menus/SpireCpu/ConfigureDebugVs.asm
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,68 @@
 +#To be inserted at 801b1428
 +.include "../../../Common/Common.s"
++backup
 +
 +# r28 is StartMeleeData after Melee initialized all rule/player defaults.
 +# Read the eight-byte Spire contract from Dolphin.
@@ -181,6 +197,12 @@ index 0000000..1111111
 +branchl r12, FN_EXITransferBuffer
 +
 +# Stock rules, selected legal stage, one-stock human P1 versus level-5 CPU P2.
++lbz r3, 0(r27)
++cmpwi r3, 1
++bne NORMAL_DEBUG_VS
++lbz r3, 1(r27)
++cmpwi r3, 1
++bne NORMAL_DEBUG_VS
 +lbz r3, 0(r28)
 +rlwinm r3, r3, 0, 27, 31
 +ori r3, r3, 0x20
@@ -213,4 +235,12 @@ index 0000000..1111111
 +
 +mr r3, r27
 +branchl r12, HSD_Free
++restore
 +branch r12, 0x801b1488
++
++NORMAL_DEBUG_VS:
++mr r3, r27
++branchl r12, HSD_Free
++restore
++li r4, 6 # Original instruction: normal debug-VS Link selection.
++branch r12, 0x801b142c
