@@ -137,7 +137,7 @@ index 27c5a5d..bd838ea 100644
  
  	// Log the direct code to file.
  	if (search.mode == SlippiMatchmaking::DIRECT)
-@@ -2393,6 +2485,16 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2393,6 +2485,17 @@ void CEXISlippi::prepareOnlineMatchState()
  		{
  			orderedSelections[rps[i].playerIdx] = &rps[i];
  		}
@@ -147,6 +147,7 @@ index 27c5a5d..bd838ea 100644
 +			auto *remote = orderedSelections[remotePlayerIndex];
 +			local->characterId = spireDuel.localCharacter;
 +			remote->characterId = spireDuel.remoteCharacter;
++			local->characterColor = remote->characterColor = 0;
 +			local->isCharacterSelected = remote->isCharacterSelected = true;
 +			local->stageId = remote->stageId = spireDuel.stage;
 +			local->isStageSelected = remote->isStageSelected = true;
@@ -164,7 +165,7 @@ index 27c5a5d..bd838ea 100644
  
  			u16 *current_health = reinterpret_cast<u16 *>(&onlineMatchBlock[0x70 + i * 0x24]);
  			*current_health = Common::swap16(desync_recovery.state.fighters[i].current_health);
-@@ -2778,7 +2881,14 @@ void CEXISlippi::setMatchSelections(u8 *payload)
+@@ -2778,7 +2881,16 @@ void CEXISlippi::setMatchSelections(u8 *payload)
  	s.alt_stage_mode = payload[8];
  
  	s.isStageSelected = stageSelectOption == 1 || stageSelectOption == 3;
@@ -172,9 +173,11 @@ index 27c5a5d..bd838ea 100644
 +	if (spireDuel.enabled)
 +	{
 +		s.characterId = spireDuel.localCharacter;
++		s.characterColor = 0;
 +		s.isCharacterSelected = true;
 +		s.stageId = spireDuel.stage;
 +		s.isStageSelected = true;
++		s.alt_stage_mode = 0;
 +	}
 +	if (!spireDuel.enabled && stageSelectOption == 3)
  	{

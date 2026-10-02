@@ -24,7 +24,9 @@ pub enum Request {
     StartDuel {
         duel: DuelSpec,
     },
-    StartCpuTest { duel: DuelSpec },
+    StartCpuTest {
+        duel: DuelSpec,
+    },
     AttachWindow {
         parent_handle: u64,
         bounds: Bounds,

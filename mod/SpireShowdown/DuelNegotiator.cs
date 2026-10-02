@@ -14,7 +14,10 @@ public struct SlippiConnectCodeMessage : INetMessage
     public bool ShouldBroadcast => true;
     public NetTransferMode Mode => NetTransferMode.Reliable;
     public LogLevel LogLevel => LogLevel.VeryDebug;
-    public bool ShouldBuffer => true;
+    // A connect code is valid only for the currently awaited relic duel.
+    // Buffering it into later synchronized scenes can poison StS2's
+    // multiplayer state/replay stream after the duel has ended.
+    public bool ShouldBuffer => false;
 
     public void Serialize(PacketWriter writer)
     {
