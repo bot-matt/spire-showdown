@@ -1,4 +1,4 @@
-name: release-alpha9
+name: release-alpha10
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      BRIDGE_RUN: 37018991924
+      BRIDGE_RUN: 37019404846
       SLIPPI_RUN: 36962276546
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -51,11 +51,11 @@ jobs:
             release/spire-showdown-slippi-windows-x86_64.zip
           (cd release && sha256sum *.zip > SHA256SUMS.txt)
 
-      - name: Publish Alpha 9
+      - name: Publish Alpha 10
         shell: bash
         run: |
-          gh release create v0.2.0-alpha.9 release/* \
+          gh release create v0.2.0-alpha.10 release/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title 'Spire Showdown v0.2.0-alpha.9' \
+            --title 'Spire Showdown v0.2.0-alpha.10' \
             --notes 'F8 now starts an embedded one-stock random-character fight against a level-5 CPU on a random legal stage. This build also enables the packaged Gecko auto-boot codes, preserves exact Linux controller device names, prevents F8 from reaching Dolphin as a save-state hotkey, and keeps transient duel negotiation out of buffered StS2 multiplayer state.'
