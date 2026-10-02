@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ConfigureWindowAux, ConnectionExt, MapState, PropMode, Window,
+    Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, InputFocus,
+    MapState, PropMode, Window,
 };
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
@@ -99,7 +100,22 @@ impl LinuxEmbedder {
                     .map_err(display_error)?
                     .reply()
                     .map_err(display_error)?;
-                if attributes.map_state == MapState::VIEWABLE {
+                let name_atom = self
+                    .connection
+                    .intern_atom(false, b"_NET_WM_NAME")
+                    .map_err(display_error)?
+                    .reply()
+                    .map_err(display_error)?
+                    .atom;
+                let name = self
+                    .connection
+                    .get_property(false, child, name_atom, AtomEnum::ANY, 0, 128)
+                    .map_err(display_error)?
+                    .reply()
+                    .map_err(display_error)?;
+                if attributes.map_state == MapState::VIEWABLE
+                    && name.value == b"Spire Showdown Arena"
+                {
                     return Ok(Some(child));
                 }
             }
@@ -205,8 +221,20 @@ impl WindowEmbedder for LinuxEmbedder {
         };
         let child = prepared.child;
         self.remove_decorations(child)?;
+        // Stop the desktop window manager from reclaiming or fullscreening
+        // this surface after it becomes a Godot child window.
+        self.connection
+            .change_window_attributes(
+                child,
+                &ChangeWindowAttributesAux::new().override_redirect(1),
+            )
+            .map_err(display_error)?
+            .check()
+            .map_err(display_error)?;
         self.connection
             .reparent_window(child, parent, bounds.x as i16, bounds.y as i16)
+            .map_err(display_error)?
+            .check()
             .map_err(display_error)?;
         self.connection
             .configure_window(
@@ -218,8 +246,30 @@ impl WindowEmbedder for LinuxEmbedder {
                     .height(bounds.height)
                     .border_width(0),
             )
+            .map_err(display_error)?
+            .check()
             .map_err(display_error)?;
-        self.connection.map_window(child).map_err(display_error)?;
+        self.connection
+            .map_window(child)
+            .map_err(display_error)?
+            .check()
+            .map_err(display_error)?;
+        if self
+            .connection
+            .query_tree(child)
+            .map_err(display_error)?
+            .reply()
+            .map_err(display_error)?
+            .parent
+            != parent
+        {
+            return Err("Slippi's arena did not attach to the Spire window".into());
+        }
+        self.connection
+            .set_input_focus(InputFocus::PARENT, child, x11rb::CURRENT_TIME)
+            .map_err(display_error)?
+            .check()
+            .map_err(display_error)?;
         self.connection.flush().map_err(display_error)?;
         self.attached = Some(prepared);
         Ok(())
@@ -251,6 +301,49 @@ impl WindowEmbedder for LinuxEmbedder {
     fn forget(&mut self) {
         self.prepared = None;
         self.attached = None;
+    }
+
+    fn resize(&mut self, bounds: Bounds) -> Result<(), String> {
+        let Some(attached) = self.attached.as_ref() else {
+            return Ok(());
+        };
+        let geometry = self
+            .connection
+            .get_geometry(attached.child)
+            .map_err(display_error)?
+            .reply()
+            .map_err(display_error)?;
+        if i32::from(geometry.x) != bounds.x
+            || i32::from(geometry.y) != bounds.y
+            || u32::from(geometry.width) != bounds.width
+            || u32::from(geometry.height) != bounds.height
+        {
+            self.connection
+                .configure_window(
+                    attached.child,
+                    &ConfigureWindowAux::new()
+                        .x(bounds.x)
+                        .y(bounds.y)
+                        .width(bounds.width)
+                        .height(bounds.height)
+                        .border_width(0),
+                )
+                .map_err(display_error)?
+                .check()
+                .map_err(display_error)?;
+            self.connection.flush().map_err(display_error)?;
+        }
+        Ok(())
+    }
+
+    fn is_alive(&self) -> bool {
+        self.attached.as_ref().is_none_or(|attached| {
+            self.connection
+                .get_window_attributes(attached.child)
+                .ok()
+                .and_then(|cookie| cookie.reply().ok())
+                .is_some()
+        })
     }
 }
 

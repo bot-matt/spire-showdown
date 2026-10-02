@@ -22,6 +22,11 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo build --release
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Test two-client duel agreement
+        run: dotnet run --project ../mod/tests/DuelNegotiatorTests.csproj
       - name: Validate Bazzite installer syntax
         if: runner.os == 'Linux'
         shell: bash

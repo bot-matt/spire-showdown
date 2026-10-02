@@ -196,6 +196,16 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
         }
         Request::StartDuel { duel } | Request::StartCpuTest { duel } => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            if guard.slippi.is_none()
+                && matches!(
+                    guard.machine.state(),
+                    DuelState::Failed | DuelState::Cancelled
+                )
+            {
+                if let Err(message) = guard.restore_ready_state() {
+                    return error_response("readiness_restore_failed", message, true);
+                }
+            }
             if let Err(message) = guard.machine.transition(DuelState::Launching) {
                 return error_response("invalid_state", message, true);
             }
@@ -253,8 +263,19 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                 Err(message) => error_response("window_attach_failed", message, true),
             }
         }
+        Request::ResizeWindow { bounds } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            match guard.embedder.resize(bounds) {
+                Ok(()) => Response::Accepted,
+                Err(message) => error_response("window_resize_failed", message, true),
+            }
+        }
         Request::Status => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            if guard.window_attached && !guard.embedder.is_alive() {
+                let _ = guard.stop_slippi();
+                let _ = guard.machine.transition(DuelState::Failed);
+            }
             let duel_status = match guard.slippi.as_ref().map(SlippiProcess::duel_status) {
                 Some(Ok(status)) => status,
                 Some(Err(message)) => return error_response("duel_status_failed", message, true),
@@ -341,6 +362,12 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
         Request::CancelDuel { duel_id, .. } => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
             let active_id = guard.slippi.as_ref().map(SlippiProcess::duel_id);
+            if active_id.is_none() && guard.machine.state() == DuelState::Failed {
+                return match guard.restore_ready_state() {
+                    Ok(()) => Response::Accepted,
+                    Err(message) => error_response("readiness_restore_failed", message, true),
+                };
+            }
             if active_id != Some(duel_id.as_str()) {
                 return error_response("duel_id_mismatch", "active duel ID does not match", true);
             }

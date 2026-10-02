@@ -18,6 +18,7 @@ pub struct SlippiProcess {
     child: Child,
     duel_id: String,
     session_dir: PathBuf,
+    stopped: bool,
 }
 
 impl SlippiProcess {
@@ -58,7 +59,12 @@ impl SlippiProcess {
         // Foreign-surface reparenting is forbidden by native Wayland. Force
         // Slippi's Qt window through XWayland on Bazzite so it can be embedded.
         #[cfg(target_os = "linux")]
-        command.env("QT_QPA_PLATFORM", "xcb");
+        {
+            use std::os::unix::process::CommandExt;
+            command.env("QT_QPA_PLATFORM", "xcb");
+            command.env("GDK_BACKEND", "x11");
+            command.process_group(0);
+        }
 
         let child = command
             .spawn()
@@ -67,6 +73,7 @@ impl SlippiProcess {
             child,
             duel_id: duel.duel_id.clone(),
             session_dir,
+            stopped: false,
         })
     }
 
@@ -106,6 +113,15 @@ impl SlippiProcess {
     }
 
     pub fn stop(&mut self) -> Result<(), String> {
+        if self.stopped {
+            return Ok(());
+        }
+        #[cfg(target_os = "linux")]
+        unsafe {
+            // AppImage extract-and-run is a wrapper; stop its entire private
+            // process group so Dolphin cannot survive a finished/cancelled duel.
+            libc::kill(-(self.child.id() as i32), libc::SIGKILL);
+        }
         if self.try_wait()?.is_none() {
             self.child
                 .kill()
@@ -114,6 +130,7 @@ impl SlippiProcess {
                 .wait()
                 .map_err(|error| format!("cannot wait for Slippi to stop: {error}"))?;
         }
+        self.stopped = true;
         Ok(())
     }
 }

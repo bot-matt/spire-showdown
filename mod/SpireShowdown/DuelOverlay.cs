@@ -241,7 +241,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
     {
         _elapsed = 0;
         _relic.Texture = null;
-        _baseStatus = "Loading one-stock CPU fight";
+        _baseStatus = "Loading one-stock fight against level-9 Fox";
         _status.Text = _baseStatus;
         _backdrop.Visible = true;
         SetProcess(true);
@@ -258,6 +258,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _backdrop.Visible = false;
     }
 
+    public void RestoreSpireFocus() => GetTree().Root.GrabFocus();
+
     public void SetRuntimeReady(bool ready)
     {
         _version.Text = ready
@@ -270,9 +272,9 @@ internal sealed partial class DuelOverlay : CanvasLayer
     {
         var handle = DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle);
         var size = DisplayServer.WindowGetSize();
-        var x = (int)(size.X * 0.04f);
-        var y = (int)(size.Y * 0.05f);
-        return (unchecked((ulong)handle), new Bounds(x, y, (uint)(size.X - x * 2), (uint)(size.Y - y * 2)));
+        var x = (int)(size.X * 0.10f);
+        var y = (int)(size.Y * 0.20f);
+        return (unchecked((ulong)handle), new Bounds(x, y, (uint)Math.Max(1, size.X - x * 2), (uint)Math.Max(1, size.Y * 0.60f)));
     }
 
     public override void _Process(double delta)

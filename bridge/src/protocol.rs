@@ -32,6 +32,9 @@ pub enum Request {
         bounds: Bounds,
     },
     Status,
+    ResizeWindow {
+        bounds: Bounds,
+    },
     FinishDuel {
         duel_id: String,
     },

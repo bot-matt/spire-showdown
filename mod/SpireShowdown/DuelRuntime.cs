@@ -104,8 +104,8 @@ internal static class DuelRuntime
             var rules = DuelCoordinator.SelectRules(seed, 26);
             duelId = $"cpu-test-{seed:x16}";
             var duel = new DuelSpec(
-                duelId, seed, "", rules.FirstCharacter, rules.SecondCharacter,
-                rules.Stage, 1, true, 5);
+                duelId, seed, "", rules.FirstCharacter, 2, // Fox (external character ID)
+                rules.Stage, 1, true, 9);
             var started = await _bridge.Client.SendAsync(
                 "start_cpu_test",
                 new { duel },
@@ -120,23 +120,33 @@ internal static class DuelRuntime
                 launchTimeout.Token);
             attached.Require("accepted");
             await WaitForPhaseAsync(_bridge.Client, "ready", launchTimeout.Token);
-            _overlay.HideOverlay();
+            _overlay.SetStatus("One stock. Make it count!");
             using var matchTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
-            await WaitForPhaseAsync(_bridge.Client, "completed", matchTimeout.Token);
+            var completed = await WaitForPhaseAsync(_bridge.Client, "completed", matchTimeout.Token);
             var finished = await _bridge.Client.SendAsync(
                 "finish_duel", new { duel_id = duelId }, CancellationToken.None);
             finished.Require("accepted");
             duelId = null;
+            _overlay.RestoreSpireFocus();
+            _overlay.SetStatus(completed.Boolean("local_won") == true ? "You win!" : "CPU wins — try again with F8");
+            await Task.Delay(1500);
         }
         catch (Exception error)
         {
             MainFile.Logger.Error($"Solo CPU fight failed: {error}");
+            if (duelId is not null)
+                await TryCancelAsync(_bridge.Client, duelId);
+            duelId = null;
+            _overlay.RestoreSpireFocus();
+            _overlay.SetStatus("Arena closed — returning to Spire");
+            await Task.Delay(1000);
         }
         finally
         {
             if (duelId is not null)
                 await TryCancelAsync(_bridge.Client, duelId);
             _overlay.HideOverlay();
+            _overlay.RestoreSpireFocus();
             DuelLock.Release();
         }
     }
@@ -155,17 +165,17 @@ internal static class DuelRuntime
         await DuelLock.WaitAsync();
         string? duelId = null;
         var resultCommitted = false;
+        DuelNegotiator? negotiation = null;
         try
         {
             _overlay.ShowLoading(result);
             var (duelTemplate, localPlayer, remotePlayer) = CreateDuel(result);
+            negotiation = new DuelNegotiator(duelTemplate.DuelId, _localConnectCode, remotePlayer.NetId);
             _overlay.SetStatus("Waiting for the other contender");
             using var negotiationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            var opponentCode = await DuelNegotiator.ExchangeConnectCodesAsync(
-                duelTemplate.DuelId,
-                _localConnectCode,
-                remotePlayer.NetId,
-                negotiationTimeout.Token);
+            using var negotiationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                negotiationTimeout.Token, negotiation.RemoteCancelled);
+            var opponentCode = await negotiation.ExchangeConnectCodesAsync(negotiationCancellation.Token);
             var duel = duelTemplate with { OpponentConnectCode = opponentCode };
             duelId = duel.DuelId;
 
@@ -178,22 +188,26 @@ internal static class DuelRuntime
             started.Require("started");
 
             using var launchTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
+            using var launchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                launchTimeout.Token, negotiation.RemoteCancelled);
             _overlay.SetStatus("Embedding Slippi");
             var target = _overlay.GetNativeTarget();
             var attached = await _bridge.Client.SendAsync(
                 "attach_window",
                 new { parent_handle = target.ParentHandle, bounds = target.Bounds },
-                launchTimeout.Token);
+                launchCancellation.Token);
             attached.Require("accepted");
 
-            await WaitForPhaseAsync(_bridge.Client, "ready", launchTimeout.Token);
-            _overlay.HideOverlay();
+            await WaitForPhaseAsync(_bridge.Client, "ready", launchCancellation.Token);
+            _overlay.SetStatus("One stock. Make it count!");
 
             using var matchTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            using var matchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                matchTimeout.Token, negotiation.RemoteCancelled);
             var completed = await WaitForPhaseAsync(
                 _bridge.Client,
                 "completed",
-                matchTimeout.Token);
+                matchCancellation.Token);
             var localWon = completed.Boolean("local_won")
                 ?? throw new InvalidDataException("Slippi completed without identifying the local winner.");
             var winner = localWon ? localPlayer : remotePlayer;
@@ -203,6 +217,15 @@ internal static class DuelRuntime
                 new { duel_id = duelId },
                 CancellationToken.None);
             finished.Require("accepted");
+            duelId = null;
+            _overlay.RestoreSpireFocus();
+            _overlay.SetStatus("Confirming the winner with the other contender");
+            using var agreementTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            if (!await negotiation.AgreeOutcomeAsync(winner.NetId, agreementTimeout.Token))
+                throw new InvalidOperationException("Contenders did not agree on the Melee result.");
+            _overlay.SetStatus(localWon ? "You win the relic!" : "Your opponent wins the relic");
+            await Task.Delay(1200);
+            _overlay.HideOverlay();
 
             result.player = winner;
             resultCommitted = true;
@@ -224,12 +247,30 @@ internal static class DuelRuntime
             MainFile.Logger.Error($"Slippi duel failed; returning to vanilla RPS: {error}");
             if (duelId is not null)
                 await TryCancelAsync(_bridge.Client, duelId);
+            duelId = null;
+            _overlay.RestoreSpireFocus();
+            if (negotiation is not null)
+            {
+                try
+                {
+                    using var cancellationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await negotiation.AgreeOutcomeAsync(null, cancellationTimeout.Token);
+                }
+                catch (Exception cancellationError)
+                {
+                    MainFile.Logger.Warn($"Could not acknowledge arena cancellation: {cancellationError.Message}");
+                }
+            }
             _overlay.HideOverlay();
             await InvokeVanillaAsync(hands, result, holder);
         }
         finally
         {
+            if (duelId is not null)
+                await TryCancelAsync(_bridge.Client, duelId);
+            negotiation?.Dispose();
             _overlay.HideOverlay();
+            _overlay.RestoreSpireFocus();
             DuelLock.Release();
         }
     }
@@ -244,12 +285,25 @@ internal static class DuelRuntime
             cancellationToken.ThrowIfCancellationRequested();
             var status = await client.SendAsync<object>("status", null, cancellationToken);
             status.Require("status");
+            var state = status.String("state");
+            if (state is "failed" or "cancelled")
+                throw new InvalidOperationException("Slippi closed or the arena was cancelled.");
             var phase = status.String("slippi_phase");
+            if (phase is "cancelled" or "failed")
+                throw new InvalidOperationException("The Melee match ended without a winner.");
             if (wanted == "ready" && _overlay is not null)
             {
                 _overlay.SetStatus(phase == "connecting"
                     ? "Connecting contenders"
                     : "Launching Slippi");
+            }
+            if (wanted == "ready" && phase == "completed")
+                return status;
+            if (phase != "completed" && _overlay is not null)
+            {
+                var target = _overlay.GetNativeTarget();
+                var resized = await client.SendAsync("resize_window", new { bounds = target.Bounds }, cancellationToken);
+                resized.Require("accepted");
             }
             if (phase == wanted)
                 return status;
@@ -336,9 +390,13 @@ internal static class DuelRuntime
         var configDir = ControllerConfigDirectory(_settings.SlippiPath);
         Directory.CreateDirectory(configDir);
         var dolphinPath = Path.Combine(configDir, "Dolphin.ini");
-        // Auto-boot and CPU setup are Gecko injections. Fresh portable
-        // Slippi installs otherwise leave the cheat engine disabled.
+        // Duel setup requires Gecko injections, regardless of user overrides.
         UpsertIniValue(dolphinPath, "Core", "EnableCheats", "True");
+        UpsertIniValue(dolphinPath, "Display", "Fullscreen", "False");
+        UpsertIniValue(dolphinPath, "Display", "RenderToMain", "False");
+        UpsertIniValue(dolphinPath, "Display", "KeepWindowOnTop", "False");
+        UpsertIniValue(dolphinPath, "Display", "RenderWindowAutoSize", "False");
+        UpsertIniValue(dolphinPath, "Interface", "ConfirmStop", "False");
         UpsertIniValue(dolphinPath, "Core", "SIDevice0", adapter ? "12" : "6");
         for (var port = 1; port < 4; port++)
             UpsertIniValue(dolphinPath, "Core", $"SIDevice{port}", "0");
@@ -346,9 +404,16 @@ internal static class DuelRuntime
         if (adapter)
             return;
 
-        var name = _overlay?.ActiveControllerName()
-            ?? throw new InvalidOperationException(
-                "No controller is connected to Spire. Open Controller Settings or select GameCube Adapter.");
+        var name = _overlay?.ActiveControllerName();
+        if (name is null)
+        {
+            // Controller availability must not gate the arena itself. This
+            // also lets keyboard users and temporarily disconnected pads keep
+            // an existing Dolphin profile instead of making F8 appear dead.
+            MainFile.Logger.Warn(
+                "No controller is currently visible to Spire; launching with the existing Dolphin input profile.");
+            return;
+        }
         var profile = OperatingSystem.IsWindows()
             ? WindowsGamepadProfile
             : LinuxGamepadProfile(name);

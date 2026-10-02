@@ -40,6 +40,7 @@ public sealed class BridgeClient : IAsyncDisposable
     {
         if (_reader is null || _writer is null)
             throw new InvalidOperationException("Bridge client is not connected.");
+        cancellationToken.ThrowIfCancellationRequested();
 
         var requestId = Guid.NewGuid().ToString("N");
         var envelope = new BridgeEnvelope<T>(
@@ -50,7 +51,11 @@ public sealed class BridgeClient : IAsyncDisposable
             payload);
         await _writer.WriteLineAsync(JsonSerializer.Serialize(envelope, JsonOptions));
 
-        var responseLine = await _reader.ReadLineAsync(cancellationToken)
+        // Once a command is on the wire, consume its reply even if the duel
+        // gets cancelled. Otherwise the next cleanup command reads the old
+        // reply, loses framing, and leaves Slippi running. Bridge commands are
+        // bounded (window discovery is at most 45 seconds).
+        var responseLine = await _reader.ReadLineAsync(CancellationToken.None)
             ?? throw new IOException("Bridge closed the connection.");
         var response = JsonSerializer.Deserialize<BridgeResponse>(responseLine, JsonOptions)
             ?? throw new InvalidDataException("Bridge returned an empty response.");
@@ -67,4 +72,3 @@ public sealed class BridgeClient : IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 }
-

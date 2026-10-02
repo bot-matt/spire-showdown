@@ -323,10 +323,10 @@ index 715c7ab..63bcfad 100644
  	{
  		GetStatusBar()->SetStatusText(str, 0);
 diff --git a/Source/Core/DolphinWX/FrameTools.cpp b/Source/Core/DolphinWX/FrameTools.cpp
-index 4e63b2f..96527f2 100644
+index 4e63b2f..133b218 100644
 --- a/Source/Core/DolphinWX/FrameTools.cpp
 +++ b/Source/Core/DolphinWX/FrameTools.cpp
-@@ -648,6 +648,13 @@ void CFrame::StartGame(const std::string& filename)
+@@ -648,6 +648,14 @@ void CFrame::StartGame(const std::string& filename)
  	if (m_bGameLoading)
  		return;
  	m_bGameLoading = true;
@@ -336,11 +336,22 @@ index 4e63b2f..96527f2 100644
 +		SConfig::GetInstance().bFullscreen = false;
 +		SConfig::GetInstance().bRenderToMain = false;
 +		SConfig::GetInstance().bKeepWindowOnTop = false;
++		SConfig::GetInstance().bRenderWindowAutoSize = false;
 +	}
  
  	GetToolBar()->EnableTool(IDM_PLAY, false);
  	GetMenuBar()->FindItem(IDM_PLAY)->Enable(false);
-@@ -707,6 +714,13 @@ void CFrame::StartGame(const std::string& filename)
+@@ -679,7 +687,8 @@ void CFrame::StartGame(const std::string& filename)
+ 		// Set window size in framebuffer pixels since the 3D rendering will be operating at
+ 		// that level.
+ 		wxSize default_size{ wxSize(640, 480) * (1.0 / GetContentScaleFactor()) };
+-		m_RenderFrame = new CRenderFrame(this, wxID_ANY, _("Dolphin"), wxDefaultPosition, default_size);
++		m_RenderFrame = new CRenderFrame(this, wxID_ANY, _("Dolphin"), wxDefaultPosition, default_size,
++			spireArena ? (wxDEFAULT_FRAME_STYLE | wxFRAME_NO_TASKBAR) : wxDEFAULT_FRAME_STYLE);
+ 
+ 		// Convert ClientSize coordinates to frame sizes.
+ 		wxSize decoration_fudge = m_RenderFrame->GetSize() - m_RenderFrame->GetClientSize();
+@@ -707,6 +716,13 @@ void CFrame::StartGame(const std::string& filename)
  		m_RenderParent = new wxPanel(m_RenderFrame, IDM_MPANEL, wxDefaultPosition, wxDefaultSize, 0);
  #endif
  

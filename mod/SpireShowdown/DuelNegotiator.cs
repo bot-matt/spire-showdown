@@ -10,6 +10,7 @@ public struct SlippiConnectCodeMessage : INetMessage
 {
     public string DuelId;
     public string ConnectCode;
+    public string Kind;
 
     public bool ShouldBroadcast => true;
     public NetTransferMode Mode => NetTransferMode.Reliable;
@@ -23,51 +24,103 @@ public struct SlippiConnectCodeMessage : INetMessage
     {
         writer.WriteString(DuelId);
         writer.WriteString(ConnectCode);
+        writer.WriteString(Kind);
     }
 
     public void Deserialize(PacketReader reader)
     {
         DuelId = reader.ReadString();
         ConnectCode = reader.ReadString();
+        Kind = reader.ReadString();
     }
 }
 
-internal static class DuelNegotiator
+// All duel messages use one registered handler for the entire session. In
+// particular, a faster client must not lose messages before its peer awaits them.
+internal sealed class DuelNegotiator : IDisposable
 {
-    public static async Task<string> ExchangeConnectCodesAsync(
-        string duelId,
-        string localConnectCode,
-        ulong remotePlayerId,
-        CancellationToken cancellationToken)
+    private readonly string _duelId;
+    private readonly string _code;
+    private readonly Action<SlippiConnectCodeMessage> _send;
+    private readonly Action _unregister;
+    private readonly CancellationTokenSource _remoteCancelled = new();
+    private readonly TaskCompletionSource<string> _remoteCode = new();
+    private readonly TaskCompletionSource<string> _remoteOutcome = new();
+    private readonly TaskCompletionSource<bool> _codeAck = new();
+    private readonly TaskCompletionSource<bool> _outcomeAck = new();
+    private string? _localOutcome;
+
+    public CancellationToken RemoteCancelled => _remoteCancelled.Token;
+
+    public DuelNegotiator(string duelId, string localConnectCode, ulong remotePlayerId)
     {
+        _duelId = duelId;
+        _code = localConnectCode;
         var service = RunManager.Instance.NetService;
         if (!service.IsConnected)
             throw new InvalidOperationException("The Slay the Spire multiplayer service is disconnected.");
 
-        var completion = new TaskCompletionSource<string>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+        _send = message => service.SendMessage(message);
         MessageHandlerDelegate<SlippiConnectCodeMessage> handler = (message, senderId) =>
         {
-            if (senderId == remotePlayerId
-                && message.DuelId == duelId
-                && IsConnectCode(message.ConnectCode))
-                completion.TrySetResult(message.ConnectCode);
-        };
-
-        service.RegisterMessageHandler(handler);
-        try
-        {
-            service.SendMessage(new SlippiConnectCodeMessage
+            if (senderId != remotePlayerId || message.DuelId != duelId)
+                return;
+            switch (message.Kind)
             {
-                DuelId = duelId,
-                ConnectCode = localConnectCode
-            });
-            return await completion.Task.WaitAsync(cancellationToken);
-        }
-        finally
+                case "code":
+                case "code_ack":
+                    if (!IsConnectCode(message.ConnectCode)) return;
+                    _remoteCode.TrySetResult(message.ConnectCode);
+                    if (message.Kind == "code_ack") _codeAck.TrySetResult(true);
+                    else Send("code_ack", _code);
+                    break;
+                case "outcome":
+                    _remoteOutcome.TrySetResult(message.ConnectCode);
+                    Send("outcome_ack", message.ConnectCode);
+                    if (message.ConnectCode == "cancel") _remoteCancelled.Cancel();
+                    break;
+                case "outcome_ack":
+                    if (message.ConnectCode == _localOutcome) _outcomeAck.TrySetResult(true);
+                    break;
+            }
+        };
+        service.RegisterMessageHandler(handler);
+        _unregister = () => service.UnregisterMessageHandler(handler);
+    }
+
+    private void Send(string kind, string value) => _send(new SlippiConnectCodeMessage
+    { DuelId = _duelId, ConnectCode = value, Kind = kind });
+
+    public async Task<string> ExchangeConnectCodesAsync(CancellationToken cancellationToken)
+    {
+        while (!_remoteCode.Task.IsCompleted || !_codeAck.Task.IsCompleted)
         {
-            service.UnregisterMessageHandler(handler);
+            cancellationToken.ThrowIfCancellationRequested();
+            Send("code", _code);
+            await Task.Delay(250, cancellationToken);
         }
+        return await _remoteCode.Task;
+    }
+
+    // A winner is committed only after both clients independently report the
+    // same player. Cancellation or disagreement makes both use the original RPS.
+    public async Task<bool> AgreeOutcomeAsync(ulong? winner, CancellationToken cancellationToken)
+    {
+        _localOutcome = winner?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "cancel";
+        while (!_remoteOutcome.Task.IsCompleted || !_outcomeAck.Task.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Send("outcome", _localOutcome);
+            await Task.Delay(250, cancellationToken);
+        }
+        return _localOutcome != "cancel" && !_remoteCancelled.IsCancellationRequested
+            && await _remoteOutcome.Task == _localOutcome;
+    }
+
+    public void Dispose()
+    {
+        _unregister();
+        _remoteCancelled.Dispose();
     }
 
     private static bool IsConnectCode(string? value) =>
