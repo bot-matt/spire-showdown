@@ -1,4 +1,4 @@
-name: release-alpha5
+name: release-alpha6
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      BRIDGE_RUN: 36959084676
+      BRIDGE_RUN: 36959661265
       SLIPPI_RUN: 36951017649
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -51,11 +51,11 @@ jobs:
             release/spire-showdown-slippi-windows-x86_64.zip
           (cd release && sha256sum *.zip > SHA256SUMS.txt)
 
-      - name: Publish Alpha 5
+      - name: Publish Alpha 6
         shell: bash
         run: |
-          gh release create v0.2.0-alpha.5 release/* \
+          gh release create v0.2.0-alpha.6 release/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title 'Spire Showdown v0.2.0-alpha.5' \
-            --notes 'Fixes duel autoboot, repeat duels in one Spire session, early embedded-window attachment, main-menu-only version status, and automatic Player 1 gamepad setup on Bazzite and Windows.'
+            --title 'Spire Showdown v0.2.0-alpha.6' \
+            --notes 'Adds an in-game controller settings panel with last-used Spire gamepad detection and a GameCube USB adapter override. The choice is saved and applied immediately before every duel.'
