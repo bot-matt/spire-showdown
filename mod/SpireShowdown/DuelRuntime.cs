@@ -96,6 +96,9 @@ internal static class DuelRuntime
         {
             _overlay.ShowSmokeTestLoading();
             ApplyControllerSettings();
+            // Let the F8 key-up reach StS2 before Dolphin owns an embedded
+            // window; otherwise Dolphin treats it as "load state slot 8".
+            await Task.Delay(300);
             var seed = BinaryPrimitives.ReadUInt64LittleEndian(
                 System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));
             var rules = DuelCoordinator.SelectRules(seed, 26);
@@ -333,6 +336,9 @@ internal static class DuelRuntime
         var configDir = ControllerConfigDirectory(_settings.SlippiPath);
         Directory.CreateDirectory(configDir);
         var dolphinPath = Path.Combine(configDir, "Dolphin.ini");
+        // Auto-boot and CPU setup are Gecko injections. Fresh portable
+        // Slippi installs otherwise leave the cheat engine disabled.
+        UpsertIniValue(dolphinPath, "Core", "EnableCheats", "True");
         UpsertIniValue(dolphinPath, "Core", "SIDevice0", adapter ? "12" : "6");
         for (var port = 1; port < 4; port++)
             UpsertIniValue(dolphinPath, "Core", $"SIDevice{port}", "0");
@@ -345,7 +351,7 @@ internal static class DuelRuntime
                 "No controller is connected to Spire. Open Controller Settings or select GameCube Adapter.");
         var profile = OperatingSystem.IsWindows()
             ? WindowsGamepadProfile
-            : LinuxGamepadProfile(name.Replace(" ", "", StringComparison.Ordinal));
+            : LinuxGamepadProfile(name);
         File.WriteAllText(Path.Combine(configDir, "GCPadNew.ini"), profile);
         MainFile.Logger.Info($"Mapped Slippi Player 1 to Spire controller: {name}");
     }

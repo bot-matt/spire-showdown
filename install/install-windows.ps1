@@ -188,7 +188,7 @@ Rumble/Motor = `Motor L` | `Motor R`
 $dolphinIni = Join-Path $slippiUserConfig 'Dolphin.ini'
 $dolphinText = if (Test-Path $dolphinIni) { Get-Content $dolphinIni -Raw } else { '' }
 if ($dolphinText -notmatch '(?m)^\[Core\]\s*$') { $dolphinText += "`r`n[Core]`r`n" }
-foreach ($setting in @{'SIDevice0'='6'; 'SIDevice1'='0'; 'SIDevice2'='0'; 'SIDevice3'='0'}.GetEnumerator()) {
+foreach ($setting in @{'EnableCheats'='True'; 'SIDevice0'='6'; 'SIDevice1'='0'; 'SIDevice2'='0'; 'SIDevice3'='0'}.GetEnumerator()) {
     if ($dolphinText -match "(?m)^$($setting.Key)\s*=") {
         $dolphinText = [regex]::Replace($dolphinText, "(?m)^$($setting.Key)\s*=.*$", "$($setting.Key) = $($setting.Value)")
     } else {
