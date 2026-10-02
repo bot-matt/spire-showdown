@@ -306,6 +306,22 @@ index c8fdedb..f228e82 100644
  	// Used to determine when to detect when a new session has started
  	bool isPlaySessionActive = false;
  
+diff --git a/Source/Core/DolphinWX/Frame.cpp b/Source/Core/DolphinWX/Frame.cpp
+index 715c7ab..63bcfad 100644
+--- a/Source/Core/DolphinWX/Frame.cpp
++++ b/Source/Core/DolphinWX/Frame.cpp
+@@ -702,6 +702,11 @@ WXLRESULT CFrame::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam)
+ 
+ void CFrame::UpdateTitle(const std::string &str)
+ {
++	if (!SConfig::GetInstance().m_spireDuelFile.empty())
++	{
++		m_RenderFrame->SetTitle("Spire Showdown Arena");
++		return;
++	}
+ 	if (SConfig::GetInstance().bRenderToMain && SConfig::GetInstance().m_InterfaceStatusbar)
+ 	{
+ 		GetStatusBar()->SetStatusText(str, 0);
 diff --git a/Source/Core/DolphinWX/FrameTools.cpp b/Source/Core/DolphinWX/FrameTools.cpp
 index 4e63b2f..96527f2 100644
 --- a/Source/Core/DolphinWX/FrameTools.cpp
