@@ -11,11 +11,17 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private readonly Label _title = new();
     private readonly Label _status = new();
     private readonly Label _version = new();
+    private readonly Button _settingsButton = new();
+    private readonly ColorRect _settingsPanel = new();
+    private readonly OptionButton _controllerMode = new();
+    private readonly Label _controllerDevice = new();
     private double _elapsed;
     private double _menuPollElapsed;
     private string _baseStatus = "Preparing the arena";
 
     public event Action? SmokeTestRequested;
+    public event Action<string>? ControllerModeSaved;
+    public int LastActiveJoypad { get; private set; } = -1;
 
     public override void _Ready()
     {
@@ -62,9 +68,104 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _version.Visible = false;
         AddChild(_version);
 
+        _settingsButton.Text = "CONTROLLER SETTINGS";
+        _settingsButton.AnchorLeft = 0.78f;
+        _settingsButton.AnchorTop = 0.06f;
+        _settingsButton.AnchorRight = 0.985f;
+        _settingsButton.AnchorBottom = 0.105f;
+        _settingsButton.Visible = false;
+        _settingsButton.Pressed += () => _settingsPanel.Visible = true;
+        AddChild(_settingsButton);
+
+        BuildSettingsPanel();
+
         HideOverlay();
         SetProcess(true);
         SetProcessUnhandledKeyInput(true);
+        SetProcessInput(true);
+    }
+
+    private void BuildSettingsPanel()
+    {
+        _settingsPanel.Color = new Color("111827fa");
+        _settingsPanel.AnchorLeft = 0.3f;
+        _settingsPanel.AnchorTop = 0.25f;
+        _settingsPanel.AnchorRight = 0.7f;
+        _settingsPanel.AnchorBottom = 0.68f;
+        _settingsPanel.Visible = false;
+        AddChild(_settingsPanel);
+
+        var heading = new Label { Text = "SPIRE SHOWDOWN CONTROLLER" };
+        heading.HorizontalAlignment = HorizontalAlignment.Center;
+        heading.AddThemeFontSizeOverride("font_size", 26);
+        heading.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopWide);
+        heading.OffsetTop = 24;
+        heading.OffsetBottom = 62;
+        _settingsPanel.AddChild(heading);
+
+        _controllerMode.AddItem("Auto-detect controller used in Spire", 0);
+        _controllerMode.AddItem("GameCube USB adapter", 1);
+        _controllerMode.ItemSelected += _ => RefreshControllerLabel();
+        _controllerMode.AnchorLeft = 0.12f;
+        _controllerMode.AnchorTop = 0.32f;
+        _controllerMode.AnchorRight = 0.88f;
+        _controllerMode.AnchorBottom = 0.46f;
+        _settingsPanel.AddChild(_controllerMode);
+
+        _controllerDevice.HorizontalAlignment = HorizontalAlignment.Center;
+        _controllerDevice.AnchorLeft = 0.08f;
+        _controllerDevice.AnchorTop = 0.51f;
+        _controllerDevice.AnchorRight = 0.92f;
+        _controllerDevice.AnchorBottom = 0.66f;
+        _settingsPanel.AddChild(_controllerDevice);
+
+        var save = new Button { Text = "SAVE AND CLOSE" };
+        save.AnchorLeft = 0.25f;
+        save.AnchorTop = 0.74f;
+        save.AnchorRight = 0.75f;
+        save.AnchorBottom = 0.88f;
+        save.Pressed += () =>
+        {
+            var mode = _controllerMode.Selected == 1 ? "gamecube_adapter" : "auto";
+            ControllerModeSaved?.Invoke(mode);
+            _settingsPanel.Visible = false;
+        };
+        _settingsPanel.AddChild(save);
+    }
+
+    public void SetControllerMode(string? mode)
+    {
+        _controllerMode.Select(mode == "gamecube_adapter" ? 1 : 0);
+        RefreshControllerLabel();
+    }
+
+    public string? ActiveControllerName()
+    {
+        var joypads = Input.GetConnectedJoypads();
+        if (LastActiveJoypad >= 0 && joypads.Contains(LastActiveJoypad))
+            return Input.GetJoyName(LastActiveJoypad);
+        return joypads.Count > 0 ? Input.GetJoyName(joypads[0]) : null;
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventJoypadButton { Pressed: true } button)
+            LastActiveJoypad = button.Device;
+        else if (@event is InputEventJoypadMotion motion && Math.Abs(motion.AxisValue) > 0.35f)
+            LastActiveJoypad = motion.Device;
+        else
+            return;
+        RefreshControllerLabel();
+    }
+
+    private void RefreshControllerLabel()
+    {
+        var name = ActiveControllerName();
+        _controllerDevice.Text = _controllerMode.Selected == 1
+            ? "Slippi will use the official GameCube USB adapter."
+            : name is null
+                ? "No Spire controller detected. Connect one and press a button."
+                : $"Detected from Spire: {name}";
     }
 
     public void ShowLoading(RelicPickingResult result)
@@ -121,7 +222,11 @@ internal sealed partial class DuelOverlay : CanvasLayer
         if (_menuPollElapsed >= 0.5)
         {
             _menuPollElapsed = 0;
-            _version.Visible = ContainsMainMenu(GetTree().Root);
+            var onMainMenu = ContainsMainMenu(GetTree().Root);
+            _version.Visible = onMainMenu;
+            _settingsButton.Visible = onMainMenu;
+            if (!onMainMenu)
+                _settingsPanel.Visible = false;
         }
         if (!_backdrop.Visible)
             return;

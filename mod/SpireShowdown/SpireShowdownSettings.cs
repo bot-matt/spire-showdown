@@ -8,7 +8,8 @@ internal sealed record SpireShowdownSettings(
     [property: JsonPropertyName("slippi_path")] string? SlippiPath,
     [property: JsonPropertyName("melee_iso_path")] string? MeleeIsoPath,
     [property: JsonPropertyName("playback_path")] string? PlaybackPath,
-    [property: JsonPropertyName("replay_path")] string? ReplayPath)
+    [property: JsonPropertyName("replay_path")] string? ReplayPath,
+    [property: JsonPropertyName("controller_mode")] string? ControllerMode)
 {
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -22,11 +23,11 @@ internal sealed record SpireShowdownSettings(
         if (File.Exists(path))
         {
             settings = JsonSerializer.Deserialize<SpireShowdownSettings>(File.ReadAllText(path), Options)
-                ?? new(null, null, null, null, null);
+                ?? new(null, null, null, null, null, "auto");
         }
         else
         {
-            settings = new(null, null, null, null, null);
+            settings = new(null, null, null, null, null, "auto");
             File.WriteAllText(path, JsonSerializer.Serialize(settings, Options));
         }
 
@@ -39,6 +40,9 @@ internal sealed record SpireShowdownSettings(
             ReplayPath = Override("SPIRE_SHOWDOWN_REPLAY", settings.ReplayPath)
         }, path);
     }
+
+    public void Save(string path) =>
+        File.WriteAllText(path, JsonSerializer.Serialize(this, Options));
 
     private static string? Override(string name, string? fallback)
     {
