@@ -158,7 +158,7 @@ for joystick in pathlib.Path("/sys/class/input").glob("js*"):
     except OSError:
         continue
     lowered = name.lower()
-    if any(word in lowered for word in ("mouse", "tablet", "touch", "keyboard", "pen")):
+    if any(word in lowered for word in ("extest", "fake device", "mouse", "tablet", "touch", "keyboard", "pen")):
         continue
     candidates.append(name)
 for name in candidates:

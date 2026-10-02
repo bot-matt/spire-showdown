@@ -143,12 +143,29 @@ internal sealed partial class DuelOverlay : CanvasLayer
     {
         var joypads = Input.GetConnectedJoypads();
         if (LastActiveJoypad >= 0 && joypads.Contains(LastActiveJoypad))
-            return Input.GetJoyName(LastActiveJoypad);
-        if (joypads.Count > 0)
-            return Input.GetJoyName(joypads[0]);
+        {
+            var active = Input.GetJoyName(LastActiveJoypad);
+            if (!IsFakeController(active))
+                return active;
+        }
+        foreach (var joypad in joypads)
+        {
+            var name = Input.GetJoyName(joypad);
+            if (!IsFakeController(name))
+                return name;
+        }
         if (OperatingSystem.IsWindows())
             return "Steam Input / XInput Controller";
         return DetectLinuxGamepad();
+    }
+
+    private static bool IsFakeController(string name)
+    {
+        var lower = name.ToLowerInvariant();
+        return lower.Contains("extest fake device")
+            || lower.Contains("virtual mouse")
+            || lower.Contains("tablet")
+            || lower.Contains("touchscreen");
     }
 
     private static string? DetectLinuxGamepad()
@@ -186,9 +203,15 @@ internal sealed partial class DuelOverlay : CanvasLayer
     public override void _Input(InputEvent @event)
     {
         if (@event is InputEventJoypadButton { Pressed: true } button)
-            LastActiveJoypad = button.Device;
+        {
+            if (!IsFakeController(Input.GetJoyName(button.Device)))
+                LastActiveJoypad = button.Device;
+        }
         else if (@event is InputEventJoypadMotion motion && Math.Abs(motion.AxisValue) > 0.35f)
-            LastActiveJoypad = motion.Device;
+        {
+            if (!IsFakeController(Input.GetJoyName(motion.Device)))
+                LastActiveJoypad = motion.Device;
+        }
         else
             return;
         RefreshControllerLabel();
