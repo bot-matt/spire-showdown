@@ -157,6 +157,9 @@ for joystick in pathlib.Path("/sys/class/input").glob("js*"):
         name = (device / "name").read_text().strip().replace(" ", "")
     except OSError:
         continue
+    lowered = name.lower()
+    if any(word in lowered for word in ("mouse", "tablet", "touch", "keyboard", "pen")):
+        continue
     candidates.append(name)
 for name in candidates:
     if "steam" in name.lower() or "gamepad" in name.lower():
