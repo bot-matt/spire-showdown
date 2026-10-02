@@ -154,7 +154,7 @@ candidates = []
 for joystick in pathlib.Path("/sys/class/input").glob("js*"):
     device = joystick / "device"
     try:
-        name = (device / "name").read_text().strip().replace(" ", "")
+        name = (device / "name").read_text().strip()
     except OSError:
         continue
     lowered = name.lower()
@@ -212,6 +212,7 @@ if path.exists():
 if not config.has_section("Core"):
     config.add_section("Core")
 config.set("Core", "SIDevice0", "6")
+config.set("Core", "EnableCheats", "True")
 for port in range(1, 4):
     config.set("Core", f"SIDevice{port}", "0")
 if not config.has_section("Input"):
