@@ -349,14 +349,6 @@ internal static partial class DuelRuntime
                 var resized = await client.SendAsync("resize_window", new { bounds = target.Bounds }, cancellationToken);
                 resized.Require("accepted");
             }
-            if (wanted == "ready" && phase == "completed")
-                return status;
-            if (phase != "completed" && _overlay is not null)
-            {
-                var target = _overlay.GetNativeTarget();
-                var resized = await client.SendAsync("resize_window", new { bounds = target.Bounds }, cancellationToken);
-                resized.Require("accepted");
-            }
             if (phase == wanted)
                 return status;
             if (phase == "completed" && wanted != "completed")

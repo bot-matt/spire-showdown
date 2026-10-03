@@ -1,2 +1,3 @@
 *.patch text eol=lf
+melee-unlocked-patch/integration.patch -text
 *.sh text eol=lf
