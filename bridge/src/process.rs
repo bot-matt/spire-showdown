@@ -21,6 +21,7 @@ pub struct SlippiProcess {
     stopped: bool,
     arena: bool,
     control: serde_json::Value,
+    #[cfg(target_os = "linux")]
     wine_server: Option<PathBuf>,
     native_keyboard: bool,
 }
@@ -57,8 +58,6 @@ impl SlippiProcess {
 
         #[cfg(target_os = "linux")]
         let mut wine_server = None;
-        #[cfg(not(target_os = "linux"))]
-        let wine_server = None;
         let mut command = if let Some(config) = arena {
             let root = slippi.parent().ok_or("Arena directory missing")?;
             #[cfg(target_os = "linux")]
@@ -159,6 +158,7 @@ impl SlippiProcess {
             stopped: false,
             arena: arena.is_some(),
             control: serde_json::json!({"duel_id":duel.duel_id,"resume":false,"cancel":false,"lab_view":duel.lab_view}),
+            #[cfg(target_os = "linux")]
             wine_server,
             native_keyboard: arena.is_none()
                 || matches!(duel.controller_mode.as_str(), "keyboard" | "native"),
@@ -422,6 +422,7 @@ mod tests {
             stopped: true,
             arena: true,
             control: serde_json::json!({"duel_id":"mailbox-test","resume":false,"cancel":false,"lab_view":true}),
+            #[cfg(target_os = "linux")]
             wine_server: None,
             native_keyboard: false,
         }
