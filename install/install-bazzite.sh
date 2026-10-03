@@ -147,7 +147,7 @@ python3 - "$config_path" "$install_dir/arena/melee_port.exe" "$proton_path" "$is
 import json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); data={}
 if p.exists(): data=json.loads(p.read_text()) # Never silently erase malformed existing settings.
-data.update(arena_backend='unlocked',melee_unlocked_path=sys.argv[2],proton_path=sys.argv[3],melee_iso_path=sys.argv[4])
+data.update(arena_backend='melee_unlocked',melee_unlocked_path=sys.argv[2],proton_path=sys.argv[3],melee_iso_path=sys.argv[4])
 data.setdefault('lab_view',True); data.setdefault('controller_mode','auto')
 h=pathlib.Path.home()
 for root in [h/'.config/Slippi Launcher/netplay/Slippi',h/'.config/SlippiOnline/Slippi']:

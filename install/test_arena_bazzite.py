@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -70,7 +71,10 @@ shutil.copyfile(pathlib.Path(os.environ['SPIRE_INSTALL_TEST_ASSETS'])/url.rsplit
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.install / "SpireShowdown.dll").read_bytes(), b"new-dll")
         data = json.loads(self.config.read_text())
-        self.assertEqual(data["arena_backend"], "unlocked")
+        self.assertEqual(data["arena_backend"], "melee_unlocked")
+        runtime = pathlib.Path(__file__).parents[1] / "mod/SpireShowdown/ArenaRuntime.cs"
+        accepted_backend = re.search(r'ArenaBackend\s*==\s*"([^"]+)"', runtime.read_text()).group(1)
+        self.assertEqual(data["arena_backend"], accepted_backend)
         self.assertEqual(data["connect_code"], "TEST#123")
         self.assertFalse(data["lab_view"])
         self.assertEqual(data["custom"], 42)
@@ -89,6 +93,16 @@ shutil.copyfile(pathlib.Path(os.environ['SPIRE_INSTALL_TEST_ASSETS'])/url.rsplit
         self.assertIn("Checksum mismatch", result.stderr)
         self.assertEqual((self.install / "SpireShowdown.dll").read_bytes(), b"old-dll")
         self.assertNotIn("arena_backend", json.loads(self.config.read_text()))
+
+    def test_all_installers_use_runtime_backend_and_aliases_match(self):
+        folder = pathlib.Path(__file__).parent
+        runtime = folder.parent / "mod/SpireShowdown/ArenaRuntime.cs"
+        accepted = re.search(r'ArenaBackend\s*==\s*"([^"]+)"', runtime.read_text()).group(1)
+        for default, alias in [("install-bazzite.sh", "install-arena-bazzite.sh"),
+                               ("install-windows.ps1", "install-arena-windows.ps1")]:
+            text = (folder / default).read_text()
+            self.assertEqual(text, (folder / alias).read_text())
+            self.assertIn("arena_backend='" + accepted + "'", text)
 
     def test_bad_existing_settings_stop_before_replacement(self):
         self.config.write_text("not-json")

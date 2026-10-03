@@ -106,7 +106,7 @@ try {
     if($LASTEXITCODE -ne 0) { throw 'Arena preflight failed; existing settings were not changed.' }
     New-Item -ItemType Directory -Force $configDir | Out-Null
     if(Test-Path $configPath) { Copy-Item $configPath (Join-Path $backup spire-showdown.json) }
-    $config.arena_backend='unlocked'; $config.melee_unlocked_path=$arenaExe; $config.melee_iso_path=$Iso
+    $config.arena_backend='melee_unlocked'; $config.melee_unlocked_path=$arenaExe; $config.melee_iso_path=$Iso
     if(-not $config.ContainsKey('lab_view')) { $config.lab_view=$true }
     if(-not $config.ContainsKey('controller_mode')) { $config.controller_mode='auto' }
     foreach($relative in @('Slippi Launcher\netplay\Slippi','Slippi Launcher\netplay-beta\Slippi','SlippiOnline\Slippi')) {
