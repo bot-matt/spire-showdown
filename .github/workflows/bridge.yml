@@ -34,6 +34,8 @@ jobs:
           bash -n ../install/install-bazzite.sh
           bash -n ../install/install-arena-bazzite.sh
           python3 ../install/test_arena_bazzite.py
+          g++ -std=c++17 -Wall -Werror ../melee-unlocked-patch/input_contract_tests.cpp -o /tmp/spire-input-contract-tests
+          /tmp/spire-input-contract-tests
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
         shell: powershell

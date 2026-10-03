@@ -71,11 +71,14 @@ and `resume: true`. The bridge writes resume only after successful window reveal
 Control also supports cancellation, live Lab view and a recent controller sample.
 `volume_percent` follows Spire's squared master/SFX gain, clamped to 0–100;
 the engine starts muted until it receives that gain. Arena launches disable
-Melee's jukebox music. GameCube-adapter mode retains direct hardware input.
+Melee's jukebox music. GameCube-adapter mode retains native hardware input on
+Windows; Linux reads USB in the Spire process and forwards tagged samples.
 Auto/Spire modes also forward keyboard controls alongside gamepad input:
 arrows/WASD move, Z attacks, X specials, Space jumps, Q shields, E grabs,
 and Enter pauses. Native mode focuses the arena for its own bindings.
-Samples older than 250 ms release buttons instead of holding stale inputs.
+Samples older than 250 ms fall back to native inputs instead of holding stale
+forwarded buttons. Neutral Auto samples also preserve native input; strict
+Spire mode accepts neutral samples to release its forwarded buttons.
 An absent/null controller sample never blocks resume or cancellation. Viewport
 controls synchronize Wine's Win32 swap-chain size with the native embedded
 surface; resizing only the X11 child can otherwise clip the game.
@@ -133,3 +136,21 @@ Alpha.13 has now been reported working through normal Steam launch on the main
 Bazzite machine. Alpha.14's isolated 2560-wide Spire test verifies aligned Lab
 rendering and nonzero keyboard input applied by the engine. Rendering remains
 capped at 60 FPS; >60 display interpolation is not enabled by this integration.
+
+Alpha.15 adds focus-restricted Linux-native keyboard polling, Linux-native USB adapter discovery/decoding, neutral-input
+arbitration, embedded Windows keyboard focus, and persistent asset failure
+diagnostics forwarded through the bridge to Spire. Decoder tests cover all four
+ports, calibration, disconnect and source selection. A deliberate missing
+Battlefield asset reproduces `lbfile.c:238`, exits with a failed status naming
+`/GrNBa.dat`, and does not block on a fatal dialog. This does not establish the
+cause of a user's Windows crash. Two real local offline-network peers connect
+and enter an online match, with nonzero forwarded input recorded by guest
+PADRead. Those tests are not live internet matchmaking or actual Windows tests.
+The clean alpha.15 production assembly also passes an actual offline Spire
+test on a private nested X11 display: F8 launches the embedded child, keyboard
+focus is moved into that child, a physical-state XTest press is read by the
+production Linux keyboard helper and reaches the engine, and the CPU result
+restores Spire. This is not a physical gamepad/adapter test. The normal desktop
+XWayland injector does not retain synthetic key state in this environment;
+using an isolated display avoids falsely treating that injector failure as
+proof that real user keys are not reaching the reader.

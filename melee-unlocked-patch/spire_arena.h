@@ -2,8 +2,13 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <string_view>
 namespace host { struct PadState; }
 namespace spire {
+constexpr bool use_forwarded_input(std::string_view mode,bool connected,bool fresh,bool active,bool linux_adapter) {
+  return connected && fresh && (mode=="spire" || (mode=="auto" && active) ||
+      (mode=="gamecube_adapter" && linux_adapter));
+}
 bool configure(const char* path, std::string& error);
 bool active();
 bool lab_view();

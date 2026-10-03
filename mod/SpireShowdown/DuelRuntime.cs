@@ -113,6 +113,7 @@ internal static partial class DuelRuntime
         try
         {
             _overlay.ShowSmokeTestLoading();
+            _latestController=null;
             ApplyControllerSettings();
             // Let the F8 key-up reach StS2 before Dolphin owns an embedded
             // window; otherwise Dolphin treats it as "load state slot 8".
@@ -164,8 +165,9 @@ internal static partial class DuelRuntime
                 await TryCancelAsync(_bridge.Client, duelId);
             duelId = null;
             _overlay.RestoreSpireFocus();
-            _overlay.SetStatus("Arena closed — returning to Spire");
-            await Task.Delay(1000);
+            _overlay.SetArenaRunning(false);
+            _overlay.SetStatus(error is OperationCanceledException ? "Arena closed — returning to Spire" : error.Message);
+            await Task.Delay(error is OperationCanceledException ? 1000 : 8000);
         }
         finally
         {
@@ -320,6 +322,9 @@ internal static partial class DuelRuntime
             cancellationToken.ThrowIfCancellationRequested();
             var status = await client.SendAsync<object>("status", null, cancellationToken);
             status.Require("status");
+            var arenaError=status.String("slippi_error");
+            if(!string.IsNullOrWhiteSpace(arenaError))
+                throw new InvalidOperationException(arenaError);
             var state = status.String("state");
             if (state is "failed" or "cancelled")
                 throw new InvalidOperationException("Slippi closed or the arena was cancelled.");

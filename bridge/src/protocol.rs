@@ -101,6 +101,8 @@ pub struct ControllerState {
     pub cy: i8,
     pub tl: u8,
     pub tr: u8,
+    #[serde(default)]
+    pub source: String,
 }
 
 fn default_cpu_level() -> u8 {
@@ -130,6 +132,7 @@ pub enum Response {
         duel_id: Option<String>,
         slippi_pid: Option<u32>,
         slippi_phase: Option<String>,
+        slippi_error: Option<String>,
         winner_idx: Option<i8>,
         local_won: Option<bool>,
     },

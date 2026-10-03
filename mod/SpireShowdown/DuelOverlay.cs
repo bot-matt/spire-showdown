@@ -23,6 +23,9 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private bool _arenaRunning, _unlocked;
     private bool _revealed;
     private double _inputElapsed;
+    private LinuxGameCubeAdapter? _linuxAdapter;
+    private LinuxArenaKeyboard? _linuxKeyboard;
+    private int _arenaControllerMode;
     private ulong _inputSequence;
     private double _elapsed;
     private double _menuPollElapsed;
@@ -37,6 +40,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public override void _Ready()
     {
+        ProcessMode = Node.ProcessModeEnum.Always;
         Layer = 500;
         _backdrop.Color = new Color("111827f5");
         _backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -63,6 +67,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _backdrop.AddChild(_title);
 
         _status.HorizontalAlignment = HorizontalAlignment.Center;
+        _status.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _status.AddThemeFontSizeOverride("font_size", 25);
         _status.AnchorLeft = 0.15f;
         _status.AnchorTop = 0.62f;
@@ -146,6 +151,10 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _controllerDevice.AnchorRight = 0.92f;
         _controllerDevice.AnchorBottom = 0.45f;
         _settingsPanel.AddChild(_controllerDevice);
+        var nextArena = new Label { Text = "Controller changes apply to the next arena.", HorizontalAlignment = HorizontalAlignment.Center };
+        nextArena.AnchorLeft=.08f; nextArena.AnchorRight=.92f;
+        nextArena.AnchorTop=.43f; nextArena.AnchorBottom=.48f;
+        _settingsPanel.AddChild(nextArena);
         _settingsLab.Text="Lab view by default (Melee Unlocked)";
         _settingsLab.AnchorLeft=.12f; _settingsLab.AnchorRight=.88f;
         _settingsLab.AnchorTop=.48f; _settingsLab.AnchorBottom=.57f;
@@ -306,6 +315,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public void HideOverlay()
     {
+        _linuxKeyboard?.Dispose(); _linuxKeyboard=null;
+        _linuxAdapter?.Dispose(); _linuxAdapter=null;
         _linuxArenaEvents?.Dispose();
         _linuxArenaEvents = null;
         _arenaRunning=false;
@@ -318,7 +329,17 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _labToggle.SetPressedNoSignal(lab); _settingsLab.SetPressedNoSignal(lab);
         _settingsFfa.SetPressedNoSignal(ffa);
     }
-    public void SetArenaRunning(bool running)=>_arenaRunning=running;
+    public void SetArenaRunning(bool running)
+    {
+        _arenaRunning=running;
+        if(running) _arenaControllerMode=_controllerMode.Selected;
+        if(running) GetTree().Root.GrabFocus();
+    }
+    public override void _ExitTree()
+    {
+        _linuxKeyboard?.Dispose(); _linuxKeyboard=null;
+        _linuxAdapter?.Dispose(); _linuxAdapter=null;
+    }
     private void ResetPresentation()
     {
         _arenaRunning=false; _revealed=false;
@@ -374,10 +395,21 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _elapsed += delta;
         _relic.Visible=!_revealed;
         _inputElapsed+=delta;
-        if (_arenaRunning && _unlocked && _inputElapsed>=1.0/60 && _controllerMode.Selected is 0 or 3)
-        { _inputElapsed=0; ControllerSampled?.Invoke(SampleController()); }
+        if (_arenaRunning && _unlocked && _inputElapsed>=1.0/60 && _arenaControllerMode is 0 or 1 or 3)
+        {
+            _inputElapsed=0;
+            if(OperatingSystem.IsLinux() && _arenaControllerMode is 0 or 3)
+                _linuxKeyboard??=new LinuxArenaKeyboard(unchecked((ulong)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle)));
+            if(OperatingSystem.IsLinux() && _arenaControllerMode is 0 or 1)
+                _linuxAdapter??=new LinuxGameCubeAdapter(message=>MainFile.Logger.Info(message));
+            var adapter=_linuxAdapter?.Sample;
+            var state=_arenaControllerMode==1 ? adapter??new ControllerState(false,0,0,0,0,0,0,0,0,"linux_gamecube") : SampleController();
+            if(_arenaControllerMode==0 && adapter is not null && !GameCubeReportDecoder.InputActive(state)) state=adapter;
+            ControllerSampled?.Invoke(state with {Sequence=++_inputSequence});
+        }
         var dots = new string('.', 1 + (int)(_elapsed * 2) % 3);
-        _status.Text = $"{_baseStatus}{dots}";
+        _status.Text = _arenaControllerMode==1 && _arenaRunning && _linuxAdapter is not null && _linuxAdapter.Sample is null
+            ? _linuxAdapter.Status : $"{_baseStatus}{dots}";
     }
 
     private ControllerState SampleController()
@@ -388,6 +420,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
         var connected=id>=0 && !IsFakeController(Input.GetJoyName(id));
         ControllerState Keyboard()
         {
+            if(_linuxKeyboard is not null)
+                return _linuxKeyboard.Read()??new ControllerState(true,0,0,0,0,0,0,0,0,"linux_keyboard");
             bool KeyDown(Key key)=>Input.IsPhysicalKeyPressed(key);
             ushort keys=0;
             if(KeyDown(Key.Z)) keys|=0x100; // Attack

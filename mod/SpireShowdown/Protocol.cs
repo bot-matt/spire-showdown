@@ -55,7 +55,7 @@ public sealed record ArenaParticipant(
     [property: JsonPropertyName("endpoint")] string? Endpoint);
 
 public sealed record ControllerState(bool Connected, ulong Sequence, ushort Buttons,
-    sbyte Sx, sbyte Sy, sbyte Cx, sbyte Cy, byte Tl, byte Tr);
+    sbyte Sx, sbyte Sy, sbyte Cx, sbyte Cy, byte Tl, byte Tr, string Source="spire");
 
 public sealed record Bounds(
     [property: JsonPropertyName("x")] int X,

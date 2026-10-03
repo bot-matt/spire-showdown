@@ -7,4 +7,9 @@
   </PropertyGroup>
   <ItemGroup><Compile Include="../SpireShowdown/DuelNegotiator.cs" Link="DuelNegotiator.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../SpireShowdown/ArenaNegotiator.cs" Link="ArenaNegotiator.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../SpireShowdown/Protocol.cs" Link="Protocol.cs" />
+    <Compile Include="../SpireShowdown/LinuxGameCubeAdapter.cs" Link="LinuxGameCubeAdapter.cs" />
+    <Compile Include="../SpireShowdown/LinuxArenaKeyboard.cs" Link="LinuxArenaKeyboard.cs" />
+  </ItemGroup>
 </Project>

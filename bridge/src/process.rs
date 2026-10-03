@@ -12,6 +12,8 @@ pub struct SlippiDuelStatus {
     pub phase: String,
     pub winner_idx: Option<i8>,
     pub local_won: Option<bool>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 pub struct SlippiProcess {
@@ -91,9 +93,9 @@ impl SlippiProcess {
                 .arg("--iso")
                 .arg(wine_path(iso))
                 .arg("--sys-dir")
-                .arg(wine_path(&root.join("Sys")))
+                .arg("Sys")
                 .arg("--lab-dir")
-                .arg(wine_path(&root.join("Lab")))
+                .arg("Lab")
                 .arg("--replay-dir")
                 .arg(wine_path(&session_dir.join("replays")))
                 .arg("--card-dir")
@@ -112,7 +114,7 @@ impl SlippiProcess {
                 .arg("d3d11")
                 .arg("--pc-settings");
             cmd.arg("--no-music").arg("--volume").arg("0");
-            if duel.controller_mode == "spire" {
+            if duel.controller_mode == "spire" || cfg!(target_os = "linux") {
                 cmd.env("MELEE_NO_GC_ADAPTER", "1");
             }
             if let Some(user) = &config.user_dir {
@@ -487,5 +489,33 @@ mod tests {
         assert_eq!(status.phase, "ready");
         assert_eq!(status.winner_idx, None);
         assert_eq!(status.local_won, None);
+    }
+
+    #[test]
+    fn missing_asset_error_survives_status_decode() {
+        let status: SlippiDuelStatus = serde_json::from_slice(
+            br#"{"duel_id":"failed","phase":"failed","winner_idx":null,"local_won":null,"error":"Melee asset lookup failed: GrNBa"}"#,
+        ).unwrap();
+        assert_eq!(
+            status.error.as_deref(),
+            Some("Melee asset lookup failed: GrNBa")
+        );
+    }
+
+    #[test]
+    fn linux_adapter_source_survives_controller_mailbox() {
+        let pad: crate::protocol::ControllerState = serde_json::from_value(serde_json::json!({
+            "connected":true,"sequence":1,"buttons":256,"sx":80,"sy":0,"cx":0,"cy":0,"tl":0,"tr":0,
+            "source":"linux_gamecube"
+        }))
+        .unwrap();
+        let mut process = mailbox_process();
+        process.update_options(true, Some(pad), None).unwrap();
+        let control: serde_json::Value = serde_json::from_slice(
+            &fs::read(process.session_dir.join("duel.json.control.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(control["pad"]["source"], "linux_gamecube");
+        assert_eq!(control["pad"]["buttons"], 256);
     }
 }

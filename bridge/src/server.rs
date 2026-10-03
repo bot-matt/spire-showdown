@@ -382,6 +382,7 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                     .map(|process| process.duel_id().to_owned()),
                 slippi_pid: guard.slippi.as_ref().map(SlippiProcess::pid),
                 slippi_phase: duel_status.as_ref().map(|status| status.phase.clone()),
+                slippi_error: duel_status.as_ref().and_then(|status| status.error.clone()),
                 winner_idx: duel_status.as_ref().and_then(|status| status.winner_idx),
                 local_won: duel_status.and_then(|status| status.local_won),
             }

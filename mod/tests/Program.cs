@@ -3,10 +3,38 @@ using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
 
+if(args.Length==2 && args[0]=="--keyboard-probe")
+{
+    using var keyboard=new LinuxArenaKeyboard(ulong.Parse(args[1]));
+    while(Console.ReadLine() is string line && line!="quit")
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(keyboard.Read(),new System.Text.Json.JsonSerializerOptions {PropertyNamingPolicy=System.Text.Json.JsonNamingPolicy.SnakeCaseLower}));
+    return;
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
 }
+
+var usbDecoder = new GameCubeReportDecoder();
+Assert(usbDecoder.Decode(new byte[36]) is null, "short USB report rejected");
+var report = new byte[37]; report[0]=0x21;
+Assert(usbDecoder.Decode(report) is null, "no connected GC controllers");
+// A controller in port 3 must become the single local Melee controller.
+const int gc=1+2*9;
+report[gc]=0x10;
+for(int axis=3;axis<=6;axis++) report[gc+axis]=128;
+var neutral=usbDecoder.Decode(report)!;
+Assert(neutral.Connected && neutral.Source=="linux_gamecube" && neutral.Sx==0, "port 3 neutral calibration");
+report[gc+1]=0x05; report[gc+2]=0x03; report[gc+3]=208; report[gc+7]=123;
+var active=usbDecoder.Decode(report)!;
+Assert(active.Buttons==0x1510 && active.Sx==80 && active.Tl==123, "GC button/axis/trigger mapping");
+report[gc]=0;
+Assert(usbDecoder.Decode(report) is null, "GC disconnect releases input");
+report[gc]=0x20; report[gc+3]=120;
+Assert(usbDecoder.Decode(report)!.Sx==0, "reconnect recalibrates wireless controller");
+Assert(!GameCubeReportDecoder.InputActive(neutral) && GameCubeReportDecoder.InputActive(active), "input source arbitration");
+Console.WriteLine("PASS: GameCube USB decoding, any port, calibration, disconnect and source selection");
 
 var original = new SlippiConnectCodeMessage { DuelId = "test", ConnectCode = "cancel", Kind = "outcome" };
 var writer = new PacketWriter();

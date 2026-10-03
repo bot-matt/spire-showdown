@@ -65,7 +65,7 @@ available when the game itself runs as a native Wayland surface.
 
 ## Guided installation
 
-### Experimental Melee Unlocked arena (alpha.14)
+### Experimental Melee Unlocked arena (alpha.15)
 
 Starting with alpha.14, `install-bazzite.sh` and `install-windows.ps1` install
 the embedded Melee Unlocked arena. The explicit `install-arena-*` aliases do
@@ -85,16 +85,32 @@ Run the downloaded script with an
 explicit release tag to keep both machines on the same version:
 
 ```bash
-bash ./install-bazzite.sh --release v0.2.0-alpha.14
+bash ./install-bazzite.sh --release v0.2.0-alpha.15
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Release v0.2.0-alpha.14
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Release v0.2.0-alpha.15
 ```
 
 The Bazzite script prints the required `--display-driver x11` Steam option.
 Windows installer execution and live cross-machine multiplayer remain
 unverified. See `melee-unlocked-patch/README.md` for arena verification status.
+
+Alpha.15 fixes neutral Spire samples overriding native input in Auto mode and
+accounts for keyboard focus in embedded Windows windows. On Linux, Auto and
+GameCube adapter modes read supported USB adapters directly using libusb;
+Proton no longer owns adapter USB access. Adapter mode shows detection or USB
+permission errors in the arena. Physical adapter operation still needs testing.
+Controller setting changes apply to the next arena.
+Linux Auto/Spire keyboard input is sampled on the native X11 side: Proton may
+report no foreground HWND after reparenting. Keys are forwarded only while
+Spire or one of its embedded arena descendants has focus.
+
+Arena fatal errors now return to Spire with a readable diagnostic; missing-asset
+panics include the filename. Relative Sys/Lab paths avoid narrow-character
+Windows username paths. These are safeguards, not a confirmed diagnosis of the
+reported Windows multiplayer crash. Local two-peer engine tests pass; live
+Windows/Bazzite cross-machine play remains unverified.
 
 ### Existing Dolphin backend
 

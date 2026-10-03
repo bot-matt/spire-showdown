@@ -172,7 +172,7 @@ index 69137f5..9fb0cc5 100644
    g_frame_submitted = false;
    ++g_retraces;
 diff --git a/port/runtime/host/window.cpp b/port/runtime/host/window.cpp
-index 01c0a00..e4a2b85 100644
+index 01c0a00..011678f 100644
 --- a/port/runtime/host/window.cpp
 +++ b/port/runtime/host/window.cpp
 @@ -12,6 +12,7 @@
@@ -227,3 +227,16 @@ index 01c0a00..e4a2b85 100644
        std::lock_guard<std::mutex> lock(g_ui_pad_mutex);
        bool toggle_settings = false;
        for (int i = 0; i < 4; ++i) {
+@@ -961,7 +964,11 @@ void input_poll(PadState out[4]) {
+   debug.gc_mask = gc_mask;
+ 
+   // Whether the game window has focus: without it, input follows the Background input option.
+-  const bool focused = g_hwnd && GetForegroundWindow() == g_hwnd;
++  const HWND foreground=GetForegroundWindow();
++  // SetParent turns the arena into a child: Windows reports Spire's root as
++  // foreground, not this HWND. Restrict the fallback to our own embedded root.
++  const bool focused = g_hwnd && (foreground==g_hwnd ||
++      (spire::active() && foreground==GetAncestor(g_hwnd,GA_ROOT)));
+   PadState kb{}; kb.err = 0;
+   uint32_t keyboard_actions = 0;
+   {

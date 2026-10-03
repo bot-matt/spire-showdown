@@ -126,6 +126,9 @@ internal static partial class DuelRuntime
                 try { using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(4));
                     await negotiation.AgreeOutcomeAsync(null,timeout.Token); } catch { }
             }
+            _overlay.SetStatus(error is OperationCanceledException ? "Arena cancelled" : error.Message);
+            // Keep the failure readable without requiring log collection.
+            await Task.Delay(error is OperationCanceledException ? 1000 : 8000);
             _overlay.HideOverlay();
             if(!committed) await InvokeVanillaAsync(hands,result,holder);
             else foreach(var p in result.fight!.playersInvolved) hands.GetHand(p.NetId)?.SetIsInFight(false);

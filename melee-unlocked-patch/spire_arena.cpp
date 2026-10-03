@@ -24,6 +24,7 @@ namespace {
 using json = nlohmann::json;
 json spec, control;
 std::string contract, phase;
+std::string last_asset;
 bool enabled = false, playing = false, resumed = false, completed = false;
 std::atomic<bool> lab{true};
 uint64_t pad_sequence = 0, pad_received = 0;
@@ -118,6 +119,13 @@ bool configure(const char* path, std::string& error) {
     if (spec.at("stocks").get<int>() != 1 || spec.at("local_character").get<int>() > 25 ||
         spec.at("local_character").get<int>() < 0) throw std::runtime_error("Invalid one-stock rules");
     contract = path; enabled = true; lab = spec.value("lab_view",true);
+    // Embedded failures belong in Spire, not a blocking standalone fatal dialog.
+    host::set_die_hook([](const char* message) {
+      std::string reason=message;
+      if (reason.find("lbfile.c")!=std::string::npos && !last_asset.empty())
+        reason="Melee asset lookup failed: " + last_asset + ". Check the ISO and arena Sys files.";
+      status("failed",-1,reason);
+    });
     status("launching");
     return true;
   } catch (const std::exception& e) { error = e.what(); return false; }
@@ -127,6 +135,9 @@ bool lab_view() { return enabled && lab.load(); }
 bool adapter_only() { return enabled && spec.value("controller_mode",std::string()) == "gamecube_adapter"; }
 void install() {
   if (!enabled) return;
+  ppc::add_entry_hook(0x800163D8u,[](ppc::Context& c) {
+    last_asset=host::cstr(c.r[3]); // lbFileGetSize, before its missing-file assertion.
+  });
   if (spec.value("cpu_test",false)) {
     // Replace the function entry, not 0x801BFA20 (an inline Slippi cave
     // inside bootOnLeave, which translated direct calls never dispatch to).
@@ -203,14 +214,20 @@ void input(host::PadState pads[4]) {
     pads[0].button=host::retrace_count()%30<2 ? 0x0100 : 0;
     return;
   }
-  if (adapter_only()) return;
   read_control();
+  const auto mode=spec.value("controller_mode",std::string("auto"));
+  if (mode!="auto" && mode!="spire" && mode!="gamecube_adapter") return;
   try {
     if (!control.count("pad") || !control["pad"].is_object() ||
         !control["pad"].value("connected",false)) return;
     const auto& p = control["pad"];
     // Only a recent sample can hold buttons. Lost focus/disconnect releases all.
-    if (GetTickCount64()-pad_received > 250) { pads[0]={}; pads[0].err=-1; return; }
+    const bool forwarded=p.value("buttons",uint16_t(0)) || p.value("sx",0) || p.value("sy",0) ||
+        p.value("cx",0) || p.value("cy",0) || p.value("tl",0) || p.value("tr",0);
+    // Neutral Godot samples (including a keyboard whose focus moved into the
+    // arena) must not erase native keyboard/controller/adapter input in Auto.
+    if (!use_forwarded_input(mode,true,GetTickCount64()-pad_received<=250,forwarded,
+        p.value("source",std::string())=="linux_gamecube")) return;
     pads[0].button=p.at("buttons").get<uint16_t>();
     pads[0].stick_x=p.at("sx").get<int8_t>(); pads[0].stick_y=p.at("sy").get<int8_t>();
     pads[0].sub_x=p.at("cx").get<int8_t>(); pads[0].sub_y=p.at("cy").get<int8_t>();
