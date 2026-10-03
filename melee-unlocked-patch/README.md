@@ -154,3 +154,22 @@ restores Spire. This is not a physical gamepad/adapter test. The normal desktop
 XWayland injector does not retain synthetic key state in this environment;
 using an isolated display avoids falsely treating that injector failure as
 proof that real user keys are not reaching the reader.
+
+Alpha.16 fixes CPU defaults leaving item frequency at Medium and uses the full
+`StartMeleeRules.x20` item-mask span (0x20–0x27), not a three-byte-shifted write.
+Both CPU and online matches must report `0xFF` (None) at game-start byte 0x10
+before the arena becomes ready. Real CPU and both local multiplayer peer
+game-start events pass this check.
+
+Spire now forwards its controller action events and the manager's left-stick
+vector, not just raw joypad state. This covers the logical action path used by
+Steam Input without requiring a raw Godot controller. Pure mapper tests cover
+buttons, triggers, stick directions and release; physical controller hardware
+still requires a real-device retest. The overlay consumes gameplay key/joypad
+and action events to prevent operating Spire's underlying menu while fighting.
+An isolated actual-Spire probe injects the same `controller_face_button_south`
+action event plus a left-stick action used by Spire's strategy, with no raw
+joypad requirement. The engine receives attack (`buttons 256`) and right-stick
+movement (`stick 80,0`), completes the CPU fight, and restores Spire. Only the
+probe assembly contains this synthetic injection; it is removed before building
+the shipped DLL. This does not verify a physical Steam Controller connection.

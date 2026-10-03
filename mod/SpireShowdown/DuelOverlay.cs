@@ -1,6 +1,7 @@
 using Godot;
 using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 
 namespace SpireShowdown;
 
@@ -10,6 +11,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private readonly TextureRect _relic = new();
     private readonly Label _title = new();
     private readonly Label _status = new();
+    private readonly Label _inputReadout = new();
     private readonly Label _version = new();
     private readonly Button _settingsButton = new();
     private readonly ColorRect _settingsPanel = new();
@@ -74,6 +76,11 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _status.AnchorRight = 0.85f;
         _status.AnchorBottom = 0.75f;
         _backdrop.AddChild(_status);
+        _inputReadout.HorizontalAlignment=HorizontalAlignment.Center;
+        _inputReadout.AddThemeFontSizeOverride("font_size",16);
+        _inputReadout.AnchorLeft=.1f; _inputReadout.AnchorRight=.9f;
+        _inputReadout.AnchorTop=.94f; _inputReadout.AnchorBottom=.99f;
+        _backdrop.AddChild(_inputReadout);
         _cancelButton.Text = "RETURN TO SPIRE";
         _cancelButton.AnchorLeft = 0.38f;
         _cancelButton.AnchorRight = 0.62f;
@@ -136,7 +143,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
         _controllerMode.AddItem("Auto-detect controller used in Spire", 0);
         _controllerMode.AddItem("GameCube USB adapter", 1);
-        _controllerMode.AddItem("Native Melee bindings (any pad / keyboard)",2);
+        _controllerMode.AddItem("Native Melee bindings (bypasses Spire / Steam Input)",2);
         _controllerMode.AddItem("Controller used in Spire only",3);
         _controllerMode.ItemSelected += _ => RefreshControllerLabel();
         _controllerMode.AnchorLeft = 0.12f;
@@ -187,6 +194,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public string? ActiveControllerName()
     {
+        if(NControllerManager.Instance?.InputType==MegaCrit.Sts2.Core.ControllerInput.InputType.Controller)
+            return "Spire controller actions (including Steam Input)";
         var joypads = Input.GetConnectedJoypads();
         if (LastActiveJoypad >= 0 && joypads.Contains(LastActiveJoypad))
         {
@@ -208,7 +217,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private static bool IsFakeController(string name)
     {
         var lower = name.ToLowerInvariant();
-        return lower.Contains("extest fake device")
+        return lower.Contains("extest fake device") || lower.Contains("mouse")
             || lower.Contains("virtual mouse")
             || lower.Contains("tablet")
             || lower.Contains("touchscreen");
@@ -258,6 +267,15 @@ internal sealed partial class DuelOverlay : CanvasLayer
             SmokeTestRequested?.Invoke();
             return;
         }
+        if(_arenaRunning && _unlocked && @event is InputEventAction or InputEventJoypadButton or InputEventJoypadMotion or InputEventKey)
+        {
+            // Input state is updated before dispatch. Keep sampling it, but do
+            // not let arena A/Start/etc activate Spire's underlying menu or UI.
+            if(@event is InputEventJoypadButton joy && !IsFakeController(Input.GetJoyName(joy.Device))) LastActiveJoypad=joy.Device;
+            if(@event is InputEventJoypadMotion axis && Math.Abs(axis.AxisValue)>.25f && !IsFakeController(Input.GetJoyName(axis.Device))) LastActiveJoypad=axis.Device;
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         if (@event is InputEventJoypadButton { Pressed: true } button)
         {
             if (!IsFakeController(Input.GetJoyName(button.Device)))
@@ -277,7 +295,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
     {
         var name = ActiveControllerName();
         _controllerDevice.Text = _controllerMode.Selected == 1
-            ? "Slippi will use the official GameCube USB adapter."
+            ? "GameCube adapter in Wii U/Switch mode; native USB on Linux."
             : name is null
                 ? "No Spire controller detected. Connect one and press a button."
                 : $"Detected from Spire: {name}";
@@ -406,7 +424,11 @@ internal sealed partial class DuelOverlay : CanvasLayer
             var state=_arenaControllerMode==1 ? adapter??new ControllerState(false,0,0,0,0,0,0,0,0,"linux_gamecube") : SampleController();
             if(_arenaControllerMode==0 && adapter is not null && !GameCubeReportDecoder.InputActive(state)) state=adapter;
             ControllerSampled?.Invoke(state with {Sequence=++_inputSequence});
+            _inputReadout.Text=$"FORWARDED INPUT: {state.Source}  •  buttons {state.Buttons:X4}  •  stick {state.Sx}, {state.Sy}";
         }
+        else if(_arenaRunning && _arenaControllerMode==2)
+            _inputReadout.Text="Native Melee input — choose Auto to use Spire / Steam Input";
+        else if(!_arenaRunning) _inputReadout.Text="";
         var dots = new string('.', 1 + (int)(_elapsed * 2) % 3);
         _status.Text = _arenaControllerMode==1 && _arenaRunning && _linuxAdapter is not null && _linuxAdapter.Sample is null
             ? _linuxAdapter.Status : $"{_baseStatus}{dots}";
@@ -435,7 +457,16 @@ internal sealed partial class DuelOverlay : CanvasLayer
             return new(true,++_inputSequence,keys,sx,sy,0,0,0,0);
         }
         var keyboard=Keyboard();
-        if (!connected) return keyboard;
+        var left=NControllerManager.Instance?.GetLeftAnalogStickDirection()??Vector2.Zero;
+        var actions=SpireControllerActions.Sample(name=>InputMap.HasAction(name)&&Input.IsActionPressed(name)?Input.GetActionStrength(name):0,left.X,left.Y);
+        ControllerState Merge(ControllerState state)=>state with {
+            Buttons=(ushort)(state.Buttons|actions.Buttons|keyboard.Buttons),
+            Sx=keyboard.Sx!=0?keyboard.Sx:state.Sx!=0?state.Sx:actions.Sx,
+            Sy=keyboard.Sy!=0?keyboard.Sy:state.Sy!=0?state.Sy:actions.Sy,
+            Cx=state.Cx!=0?state.Cx:actions.Cx,Cy=state.Cy!=0?state.Cy:actions.Cy,
+            Tl=Math.Max(state.Tl,actions.Tl),Tr=Math.Max(state.Tr,actions.Tr),
+            Source=GameCubeReportDecoder.InputActive(actions)?"spire_actions":state.Source };
+        if (!connected) return Merge(keyboard);
         bool Pressed(JoyButton b)=>Input.IsJoyButtonPressed(id,b);
         ushort buttons=0;
         foreach(var (button,mask) in new (JoyButton,ushort)[] {
@@ -448,9 +479,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
         if(tl>=230) buttons|=0x40; if(tr>=230) buttons|=0x20;
         sbyte Axis(JoyAxis a,bool invert=false)=>(sbyte)Math.Clamp((int)(Input.GetJoyAxis(id,a)*(invert?-80:80)),-80,80);
         var mainX=Axis(JoyAxis.LeftX); var mainY=Axis(JoyAxis.LeftY,true);
-        return new(true,++_inputSequence,(ushort)(buttons|keyboard.Buttons),
-            keyboard.Sx!=0?keyboard.Sx:mainX,keyboard.Sy!=0?keyboard.Sy:mainY,
-            Axis(JoyAxis.RightX),Axis(JoyAxis.RightY,true),tl,tr);
+        return Merge(new(true,++_inputSequence,buttons,mainX,mainY,
+            Axis(JoyAxis.RightX),Axis(JoyAxis.RightY,true),tl,tr));
     }
 
     private static bool ContainsMainMenu(Node node)

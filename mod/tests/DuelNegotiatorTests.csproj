@@ -11,5 +11,6 @@
     <Compile Include="../SpireShowdown/Protocol.cs" Link="Protocol.cs" />
     <Compile Include="../SpireShowdown/LinuxGameCubeAdapter.cs" Link="LinuxGameCubeAdapter.cs" />
     <Compile Include="../SpireShowdown/LinuxArenaKeyboard.cs" Link="LinuxArenaKeyboard.cs" />
+    <Compile Include="../SpireShowdown/SpireControllerActions.cs" Link="SpireControllerActions.cs" />
   </ItemGroup>
 </Project>

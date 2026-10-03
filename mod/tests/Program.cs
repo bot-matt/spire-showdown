@@ -17,6 +17,17 @@ static void Assert(bool condition, string message)
 }
 
 var usbDecoder = new GameCubeReportDecoder();
+var steamActions=new Dictionary<string,float> {
+    ["controller_face_button_south"]=1,["controller_face_button_west"]=1,
+    ["controller_right_bumper"]=1,["controller_left_trigger"]=1,
+    ["controller_r_stick_right"]=1 };
+var steamPacket=SpireControllerActions.Sample(name=>steamActions.GetValueOrDefault(name),.75f,-.5f);
+Assert(steamPacket.Buttons==0x550 && steamPacket.Sx==60 && steamPacket.Sy==40 && steamPacket.Cx==80 && steamPacket.Tl==255,
+    "Spire Steam Input actions forward without a raw joypad connection");
+steamActions.Clear();
+var released=SpireControllerActions.Sample(name=>steamActions.GetValueOrDefault(name),0,0);
+Assert(!GameCubeReportDecoder.InputActive(released),"controller action release has no stuck buttons");
+Console.WriteLine("PASS: Spire controller action input, axes, triggers and release without raw joypad");
 Assert(usbDecoder.Decode(new byte[36]) is null, "short USB report rejected");
 var report = new byte[37]; report[0]=0x21;
 Assert(usbDecoder.Decode(report) is null, "no connected GC controllers");

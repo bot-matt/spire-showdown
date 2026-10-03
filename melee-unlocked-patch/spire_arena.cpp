@@ -89,6 +89,7 @@ void enter_cpu(ppc::Context& c, uint8_t* m) {
   ppc::call(c,m,0x801A427Cu); // gm_GetGameModeStateEnterData
   const uint32_t start = c.r[3];
   c.r[3] = start; ppc::call(c,m,0x80167A64u); // gm_SetupRulesDefaults
+  disable_items(host::ptr(start,0x60),0x60);
   for (int i = 0; i < 6; ++i) {
     c.r[3] = start + 0x60u + 0x24u*i;
     ppc::call(c,m,0x8016795Cu); // gm_SetupPlayerDefaults
@@ -163,6 +164,10 @@ void tick() { if (enabled) read_control(); }
 void event(const uint8_t* bytes, uint32_t size) {
   if (!enabled || !bytes || !size || completed) return;
   if (bytes[0] == 0x36 && size >= 0xD4) {
+    if(bytes[0x10]!=0xFF) {
+      status("failed",-1,"Engine did not disable items"); host::request_exit(3); return;
+    }
+    host::log("spire: game-start rules verified: item frequency None");
     observed_stage = be16(bytes+0x13);
     for (int i=0;i<4;++i) {
       kinds[i] = bytes[0x66+0x24*i] == 3 ? -1 : bytes[0x65+0x24*i];
@@ -246,7 +251,7 @@ void rules(uint8_t* block,uint32_t size) {
   block[0x0]=(block[0x0]&0x1F)|0x20; block[0x8]=0; // Stocks, free-for-all.
   const uint16_t stage=spec["stage"].get<uint16_t>();
   block[0xE]=uint8_t(stage>>8); block[0xF]=uint8_t(stage);
-  block[0xB]=0xFF; std::memset(block+0x23,0,8); // No items.
+  disable_items(block,size);
   for(int i=0;i<4;++i) {
     block[0x61+0x24*i]=i<int(participants.size())?0:3;
     block[0x62+0x24*i]=1;

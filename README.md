@@ -65,7 +65,7 @@ available when the game itself runs as a native Wayland surface.
 
 ## Guided installation
 
-### Experimental Melee Unlocked arena (alpha.15)
+### Experimental Melee Unlocked arena (alpha.16)
 
 Starting with alpha.14, `install-bazzite.sh` and `install-windows.ps1` install
 the embedded Melee Unlocked arena. The explicit `install-arena-*` aliases do
@@ -85,11 +85,11 @@ Run the downloaded script with an
 explicit release tag to keep both machines on the same version:
 
 ```bash
-bash ./install-bazzite.sh --release v0.2.0-alpha.15
+bash ./install-bazzite.sh --release v0.2.0-alpha.16
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Release v0.2.0-alpha.15
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Release v0.2.0-alpha.16
 ```
 
 The Bazzite script prints the required `--display-driver x11` Steam option.
@@ -111,6 +111,21 @@ panics include the filename. Relative Sys/Lab paths avoid narrow-character
 Windows username paths. These are safeguards, not a confirmed diagnosis of the
 reported Windows multiplayer crash. Local two-peer engine tests pass; live
 Windows/Bazzite cross-machine play remains unverified.
+
+Alpha.16 also samples Spire's actual `controller_*` action states and left-stick
+strategy. Steam Input sends these action events rather than raw Godot joypad
+buttons; they are now forwarded even with no usable raw joypad device. Auto and
+Spire modes combine these with keyboard/physical-pad inputs. The arena footer
+shows the forwarded source, buttons and stick for diagnosis without logs.
+Controller actions are consumed by the overlay so they do not operate the
+underlying Spire menu during a match. Native mode bypasses this forwarding;
+choose Auto for Steam Input. Spire's action layout does not expose every raw
+Steam-controller axis, so full custom C-stick/analog-trigger support is not
+claimed for that path.
+
+CPU tests and multiplayer both force item frequency None and clear the complete
+item mask. The real game-start event is checked before READY; a match with items
+enabled is rejected instead of silently using different rules.
 
 ### Existing Dolphin backend
 
