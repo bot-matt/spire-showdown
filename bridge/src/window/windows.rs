@@ -5,9 +5,10 @@ use std::time::{Duration, Instant};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetParent, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible,
-    SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_STYLE, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WS_CAPTION, WS_CHILD, WS_POPUP, WS_THICKFRAME,
+    EnumWindows, GetParent, GetWindowLongPtrW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
+    IsWindowVisible, SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_STYLE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, SW_SHOWNOACTIVATE,
+    WS_CAPTION, WS_CHILD, WS_POPUP, WS_THICKFRAME,
 };
 
 use super::WindowEmbedder;
@@ -37,7 +38,11 @@ unsafe extern "system" fn enum_window(hwnd: HWND, parameter: LPARAM) -> BOOL {
     let context = &mut *(parameter as *mut FindContext);
     let mut window_pid = 0_u32;
     GetWindowThreadProcessId(hwnd, &mut window_pid);
-    if window_pid == context.pid && IsWindowVisible(hwnd) != 0 {
+    let mut title = [0_u16; 128];
+    let length = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32);
+    if window_pid == context.pid
+        && String::from_utf16_lossy(&title[..length.max(0) as usize]) == "Spire Showdown Arena"
+    {
         context.found = hwnd;
         return 0;
     }
@@ -116,6 +121,10 @@ impl WindowEmbedder for WindowsEmbedder {
                 | WS_CHILD;
             SetWindowLongPtrW(child, GWL_STYLE, style as isize);
             SetParent(child, parent);
+            if GetParent(child) != parent {
+                SetWindowLongPtrW(child, GWL_STYLE, prepared.original_style);
+                return Err("SetParent failed while embedding Slippi".into());
+            }
             if SetWindowPos(
                 child,
                 ptr::null_mut(),
@@ -133,13 +142,13 @@ impl WindowEmbedder for WindowsEmbedder {
                 }
                 return Err("SetWindowPos failed while embedding Slippi".into());
             }
-            ShowWindow(child, SW_SHOW);
             self.attached = Some(prepared);
         }
         Ok(())
     }
 
     fn detach(&mut self) -> Result<(), String> {
+        // This path is for surviving surfaces; normal duel cleanup kills the process.
         if let Some(attached) = self.attached.take() {
             unsafe {
                 let child = attached.child as HWND;
@@ -172,5 +181,46 @@ impl WindowEmbedder for WindowsEmbedder {
     fn forget(&mut self) {
         self.prepared = None;
         self.attached = None;
+    }
+
+    fn resize(&mut self, bounds: Bounds) -> Result<(), String> {
+        if let Some(attached) = self.attached.as_ref() {
+            unsafe {
+                if SetWindowPos(
+                    attached.child as HWND,
+                    ptr::null_mut(),
+                    bounds.x,
+                    bounds.y,
+                    bounds.width as i32,
+                    bounds.height as i32,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                ) == 0
+                {
+                    return Err("cannot resize embedded Slippi arena".into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn is_alive(&self) -> bool {
+        self.attached
+            .as_ref()
+            .is_none_or(|attached| unsafe { IsWindow(attached.child as HWND) != 0 })
+    }
+
+    fn reveal(&mut self, native_keyboard: bool) -> Result<(), String> {
+        let attached = self.attached.as_ref().ok_or("Slippi is not embedded")?;
+        unsafe {
+            ShowWindow(
+                attached.child as HWND,
+                if native_keyboard {
+                    SW_SHOW
+                } else {
+                    SW_SHOWNOACTIVATE
+                },
+            );
+        }
+        Ok(())
     }
 }

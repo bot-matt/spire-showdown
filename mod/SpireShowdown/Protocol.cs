@@ -42,7 +42,20 @@ public sealed record DuelSpec(
     [property: JsonPropertyName("stage")] ushort Stage,
     [property: JsonPropertyName("stocks")] byte Stocks = 1,
     [property: JsonPropertyName("cpu_test")] bool CpuTest = false,
-    [property: JsonPropertyName("cpu_level")] byte CpuLevel = 5);
+    [property: JsonPropertyName("cpu_level")] byte CpuLevel = 5,
+    [property: JsonPropertyName("lab_view")] bool LabView = true,
+    [property: JsonPropertyName("controller_mode")] string ControllerMode = "auto",
+    [property: JsonPropertyName("participants")] ArenaParticipant[]? Participants = null,
+    [property: JsonPropertyName("local_player_index")] byte LocalPlayerIndex = 0);
+
+public sealed record ArenaParticipant(
+    [property: JsonPropertyName("player_id")] ulong PlayerId,
+    [property: JsonPropertyName("character")] byte Character,
+    [property: JsonPropertyName("connect_code")] string ConnectCode,
+    [property: JsonPropertyName("endpoint")] string? Endpoint);
+
+public sealed record ControllerState(bool Connected, ulong Sequence, ushort Buttons,
+    sbyte Sx, sbyte Sy, sbyte Cx, sbyte Cy, byte Tl, byte Tr);
 
 public sealed record Bounds(
     [property: JsonPropertyName("x")] int X,

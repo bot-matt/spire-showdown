@@ -14,6 +14,13 @@ public sealed class DuelCoordinator
     ];
 
     public DuelLifecycle State { get; private set; } = DuelLifecycle.Idle;
+    public static (byte[] Characters,ushort Stage) SelectArenaRules(ulong seed,byte count)
+    {
+        if(count is <2 or >4) throw new ArgumentOutOfRangeException(nameof(count));
+        var rng=new SplitMix64(seed);
+        var characters=Enumerable.Range(0,count).Select(_=>(byte)(rng.Next()%26)).ToArray();
+        return (characters,LegalStages[rng.Next()%(ulong)LegalStages.Length]);
+    }
 
     public static (byte FirstCharacter, byte SecondCharacter, ushort Stage) SelectRules(
         ulong seed,
@@ -68,4 +75,3 @@ public sealed class DuelCoordinator
         }
     }
 }
-

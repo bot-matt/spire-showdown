@@ -21,8 +21,7 @@ internal static class ContestedRelicHook
         ref Task __result)
     {
         if (DuelRuntime.BypassHook
-            || result.fight?.playersInvolved.Count != 2
-            || !DuelRuntime.CanStart)
+            || !DuelRuntime.CanHandleFight(result.fight?.playersInvolved.Count??0))
             return true;
 
         __result = DuelRuntime.RunAsync(__instance, result, holder);

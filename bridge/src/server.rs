@@ -15,6 +15,7 @@ struct BridgeRuntime {
     slippi: Option<SlippiProcess>,
     embedder: Box<dyn WindowEmbedder + Send>,
     window_attached: bool,
+    arena: Option<crate::arena::ArenaConfig>,
 }
 
 impl BridgeRuntime {
@@ -25,6 +26,7 @@ impl BridgeRuntime {
             slippi: None,
             embedder: platform_embedder(),
             window_attached: false,
+            arena: None,
         }
     }
 
@@ -178,13 +180,23 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
             bridge_version: env!("CARGO_PKG_VERSION").into(),
             platform: std::env::consts::OS.into(),
         },
-        Request::Preflight { slippi, iso } => {
+        Request::Preflight { slippi, iso, arena } => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
             guard.reset_terminal_state();
             if let Err(message) = guard.machine.transition(DuelState::Preflighting) {
                 return error_response("invalid_state", message, true);
             }
-            let report = crate::discovery::discover(slippi.as_deref(), iso.as_deref());
+            let mut report = crate::discovery::discover(slippi.as_deref(), iso.as_deref());
+            guard.arena = None;
+            if let Some(config) = arena {
+                match config.resolve(&mut report) {
+                    Ok(config) => guard.arena = Some(config),
+                    Err(message) => {
+                        report.ready = false;
+                        report.problems.push(message);
+                    }
+                }
+            }
             let next = if report.ready {
                 DuelState::Ready
             } else {
@@ -196,6 +208,16 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
         }
         Request::StartDuel { duel } | Request::StartCpuTest { duel } => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            if guard.slippi.is_none()
+                && matches!(
+                    guard.machine.state(),
+                    DuelState::Failed | DuelState::Cancelled
+                )
+            {
+                if let Err(message) = guard.restore_ready_state() {
+                    return error_response("readiness_restore_failed", message, true);
+                }
+            }
             if let Err(message) = guard.machine.transition(DuelState::Launching) {
                 return error_response("invalid_state", message, true);
             }
@@ -211,7 +233,7 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                 let _ = guard.machine.transition(DuelState::Failed);
                 return error_response("preflight_failed", "Slippi or Melee path is missing", true);
             };
-            match SlippiProcess::launch(&slippi.path, &iso.path, &duel) {
+            match SlippiProcess::launch(&slippi.path, &iso.path, &duel, guard.arena.as_ref()) {
                 Ok(mut process) => {
                     let pid = process.pid();
                     let duel_id = process.duel_id().to_owned();
@@ -240,6 +262,9 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
             let Some(pid) = guard.slippi.as_ref().map(SlippiProcess::pid) else {
                 return error_response("no_active_duel", "Slippi is not running", true);
             };
+            if let Some(Err(message)) = guard.slippi.as_mut().map(|p| p.update_viewport(bounds)) {
+                return error_response("arena_viewport_failed", message, true);
+            }
             match guard.embedder.attach(parent_handle, pid, bounds) {
                 Ok(()) => {
                     guard.window_attached = true;
@@ -253,8 +278,52 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
                 Err(message) => error_response("window_attach_failed", message, true),
             }
         }
+        Request::RevealWindow => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            let native_keyboard = guard
+                .slippi
+                .as_ref()
+                .is_some_and(SlippiProcess::needs_native_keyboard);
+            match guard.embedder.reveal(native_keyboard) {
+                Ok(()) => match guard.slippi.as_mut().map(SlippiProcess::resume) {
+                    Some(Err(message)) => error_response("arena_resume_failed", message, true),
+                    _ => Response::Accepted,
+                },
+                Err(message) => error_response("window_reveal_failed", message, true),
+            }
+        }
+        Request::ArenaOptions {
+            lab_view,
+            pad,
+            volume_percent,
+        } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            match guard
+                .slippi
+                .as_mut()
+                .map(|p| p.update_options(lab_view, pad, volume_percent))
+            {
+                Some(Ok(())) => Response::Accepted,
+                Some(Err(message)) => error_response("arena_options_failed", message, true),
+                None => error_response("no_active_duel", "Arena is not running", true),
+            }
+        }
+        Request::ResizeWindow { bounds } => {
+            let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            if let Some(Err(message)) = guard.slippi.as_mut().map(|p| p.update_viewport(bounds)) {
+                return error_response("arena_viewport_failed", message, true);
+            }
+            match guard.embedder.resize(bounds) {
+                Ok(()) => Response::Accepted,
+                Err(message) => error_response("window_resize_failed", message, true),
+            }
+        }
         Request::Status => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
+            if guard.window_attached && !guard.embedder.is_alive() {
+                let _ = guard.stop_slippi();
+                let _ = guard.machine.transition(DuelState::Failed);
+            }
             let duel_status = match guard.slippi.as_ref().map(SlippiProcess::duel_status) {
                 Some(Ok(status)) => status,
                 Some(Err(message)) => return error_response("duel_status_failed", message, true),
@@ -341,6 +410,12 @@ fn dispatch(request: Request, runtime: &Arc<Mutex<BridgeRuntime>>) -> Response {
         Request::CancelDuel { duel_id, .. } => {
             let mut guard = runtime.lock().expect("bridge runtime lock poisoned");
             let active_id = guard.slippi.as_ref().map(SlippiProcess::duel_id);
+            if active_id.is_none() && guard.machine.state() == DuelState::Failed {
+                return match guard.restore_ready_state() {
+                    Ok(()) => Response::Accepted,
+                    Err(message) => error_response("readiness_restore_failed", message, true),
+                };
+            }
             if active_id != Some(duel_id.as_str()) {
                 return error_response("duel_id_mismatch", "active duel ID does not match", true);
             }

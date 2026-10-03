@@ -22,15 +22,24 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo build --release
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Test two-to-four-client duel agreement
+        run: dotnet run --project ../mod/tests/DuelNegotiatorTests.csproj
       - name: Validate Bazzite installer syntax
         if: runner.os == 'Linux'
         shell: bash
-        run: bash -n ../install/install-bazzite.sh
+        run: |
+          bash -n ../install/install-bazzite.sh
+          bash -n ../install/install-arena-bazzite.sh
+          python3 ../install/test_arena_bazzite.py
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           [void][scriptblock]::Create((Get-Content ../install/install-windows.ps1 -Raw))
+          [void][scriptblock]::Create((Get-Content ../install/install-arena-windows.ps1 -Raw))
       - name: Assemble platform mod bundle
         shell: bash
         run: |
@@ -39,12 +48,15 @@ jobs:
           cp ../dist/mod/SpireShowdown/SpireShowdown.json ../package/SpireShowdown/
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp target/release/spire-showdown-bridge.exe ../package/SpireShowdown/
-            cp ../install/install-windows.ps1 ../package/
+            cp ../install/install-arena-windows.ps1 ../package/install-windows.ps1
+            cp ../install/install-arena-windows.ps1 ../package/
           else
             cp target/release/spire-showdown-bridge ../package/SpireShowdown/
             chmod +x ../package/SpireShowdown/spire-showdown-bridge
-            cp ../install/install-bazzite.sh ../package/
+            cp ../install/install-arena-bazzite.sh ../package/install-bazzite.sh
+            cp ../install/install-arena-bazzite.sh ../package/
             chmod +x ../package/install-bazzite.sh
+            chmod +x ../package/install-arena-bazzite.sh
           fi
       - uses: actions/upload-artifact@v4
         with:

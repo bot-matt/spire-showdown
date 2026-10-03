@@ -1,0 +1,135 @@
+# Melee Unlocked arena integration (development)
+
+This is the experimental default backend starting with **alpha.14**.
+A stock Melee Unlocked executable is deliberately rejected:
+the bridge needs the boot, readiness, control and result contract below.
+
+Pinned upstream: `Hero88go/melee-unlocked` at
+`e5b349479bc4171a805b90e26d243c9c357729e4` (0.8.67).
+Use **Static Recomp**, not Source Port: upstream disables Lab view for Source Port.
+No ISO, extracted DOL, or generated retail translation sources belong in this repo.
+
+## Windows build
+
+Run in a Visual Studio x64 developer shell with CMake, Ninja, Python and Git:
+
+```powershell
+git clone https://github.com/Hero88go/melee-unlocked.git melee-unlocked
+cd melee-unlocked
+git checkout e5b349479bc4171a805b90e26d243c9c357729e4
+git submodule update --init sourceport/extern/melee
+git apply --ignore-whitespace ../spire-showdown/melee-unlocked-patch/integration.patch
+Copy-Item ../spire-showdown/melee-unlocked-patch/spire_arena.* port/runtime/host/
+python tools/extract_dol.py 'PATH-TO-YOUR-NTSC-1.02.iso' build/main.dol
+python port/recomp/recomp.py --dol build/main.dol --gct-base 0x8065CC80
+cmake -S . -B build-spire -G Ninja -DMELEE_BUILD_EXPERIMENTAL_PORT=ON -DMELEE_CPU_BASELINE=SSE2 -DCMAKE_BUILD_TYPE=Release
+cmake --build build-spire --target melee_port
+git clone https://github.com/frankborden/slippilab.git ../slippilab
+git -C ../slippilab checkout ba4e09172344d1e7957de2d8a6eebab31632d92f
+python tools/build_lab_assets.py --slippilab ../slippilab --out build-spire/Lab
+```
+
+SSE2 avoids an AVX2-only package excluding older computers. Linux uses this
+Windows executable through a private Proton prefix, with the native Linux bridge
+performing X11 reparenting. Building on Linux is a developer-only MSVC-Wine setup;
+the Bazzite installer must never download a compiler or require Toolbox.
+
+## Package contract
+
+The archive `spire-showdown-arena-Windows-x86_64.zip` must contain:
+
+```text
+arena/
+  melee_port.exe
+  SpireArena.json
+  Sys/GameFiles/GALE01/...
+  Lab/*.lab
+  required redistributable runtime DLLs
+  licenses/... (upstream, third-party, Slippi Lab and redistributable notices)
+```
+
+`SpireArena.json` requires `protocol: 1` and `engine: "static_recomp"`; include
+the pinned upstream revision and integration build version as well. Publish this
+asset together with both platform mod ZIPs and a `SHA256SUMS` file listing each
+archive. The platform installers pin one release tag for all downloads; they do
+not combine a cached engine ZIP with a newer mod DLL.
+
+New installation entry points are `install/install-arena-bazzite.sh` and
+`install/install-arena-windows.ps1`. The previous Dolphin installers remain
+available during development. The new scripts cannot work against an older
+release without the arena asset/checksums, and stop before replacing files.
+
+## Runtime contract
+
+`--spire-duel ABSOLUTE-PATH` reads the bridge's one-stock duel JSON. The engine
+atomically writes `PATH.status.json`, including `duel_id`, `phase`, `winner_idx`
+and `local_won`. A non-CPU match supplies 2-4 canonical participants.
+
+The engine validates actual game-start players, stage and stocks, then announces
+`ready` and holds before play until `PATH.control.json` has matching `duel_id`
+and `resume: true`. The bridge writes resume only after successful window reveal.
+Control also supports cancellation, live Lab view and a recent controller sample.
+`volume_percent` follows Spire's squared master/SFX gain, clamped to 0–100;
+the engine starts muted until it receives that gain. Arena launches disable
+Melee's jukebox music. GameCube-adapter mode retains direct hardware input.
+Auto/Spire modes also forward keyboard controls alongside gamepad input:
+arrows/WASD move, Z attacks, X specials, Space jumps, Q shields, E grabs,
+and Enter pauses. Native mode focuses the arena for its own bindings.
+Samples older than 250 ms release buttons instead of holding stale inputs.
+An absent/null controller sample never blocks resume or cancellation. Viewport
+controls synchronize Wine's Win32 swap-chain size with the native embedded
+surface; resizing only the X11 child can otherwise clip the game.
+Embedded arenas bypass standalone monitor work-area sizing limits. Spire uses
+the animated frame's actual UI-to-client transform for placement, including
+letterboxing, rather than raw window percentages. While a foreign child is
+attached, the mod suspends only Godot's X11 SubstructureNotify subscription,
+then restores it after cleanup; foreign resize events must not resize Godot's
+cached main viewport.
+Stock upstream runtime defaults and memory-card prompts are not a readiness signal.
+
+Two players use Slippi Direct. Three/four players use upstream experimental
+`--local-peer` with explicit reachable IPv4 UDP endpoints; this is not automatic
+internet matchmaking and may need forwarding. Spire contenders exchange backend,
+version, readiness and winner; spectators wait for committed results.
+
+## Verification so far
+
+- C# mod compiles against the installed game, with no warnings.
+- Rust bridge unit tests and simulated 2-4 contender agreement tests pass.
+- Bazzite installer offline tests cover update, backup, retained settings,
+  checksum rejection and invalid existing configuration.
+- The patched executable has built with MSVC through isolated Proton.
+- A real one-stock CPU fight reaches ready, renders Lab view inside a disposable
+  native X11 parent, reports Fox's win, and exits on cancellation.
+- The actual bridge launches the patched CPU engine, reports its real result,
+  resets and launches a second fight in the same session, then cancels/reset.
+  Lab-view reveal is now visually verified in a mapped native test parent,
+  including the controllerless mailbox and synchronized viewport dimensions.
+- An isolated offline copy of the actual installed Spire (separate save data,
+  `--force-steam=off`) runs F8, attaches the arena as a native child, receives
+  the CPU result and restores the menu. Godot framebuffer captures verify the
+  summon animation, result text and restored UI. Those framebuffer captures
+  exclude foreign native child surfaces; separate X11 captures verify the arena.
+- Initialization defers overlay attachment until Godot's root is no longer
+  building children, then awaits `_Ready` before declaring preflight success.
+  A successful bridge preflight alone did not previously prove F8 was active.
+- The same offline Spire instance accepts a fresh F8 through Godot's input
+  pipeline, launches a second arena, and restores the menu after the native
+  arena child receives `WM_DELETE_WINDOW`. The repeat key is injected by a
+  developer-only hook: desktop `XSendEvent` repeat delivery remains unreliable
+  here. That hook and framebuffer capture code are not in the shipped assembly.
+
+Spire retains input focus for forwarded-controller/adapter modes; native keyboard
+mode retains arena focus. On exit the mod closes the bridge transport first,
+allowing private Wine-prefix cleanup before the bounded forced-stop fallback.
+
+Normal Steam-launched presentation, physical controller hardware, actual Windows
+installation, and live multiplayer still need integration testing. The offline
+desktop probe forces only its own test parent mapped to avoid the compositor
+hiding agent-launched windows. Do not label the remaining paths as verified
+merely because the unit tests or a disposable parent pass.
+
+Alpha.13 has now been reported working through normal Steam launch on the main
+Bazzite machine. Alpha.14's isolated 2560-wide Spire test verifies aligned Lab
+rendering and nonzero keyboard input applied by the engine. Rendering remains
+capped at 60 FPS; >60 display interpolation is not enabled by this integration.

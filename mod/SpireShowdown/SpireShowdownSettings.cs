@@ -9,7 +9,14 @@ internal sealed record SpireShowdownSettings(
     [property: JsonPropertyName("melee_iso_path")] string? MeleeIsoPath,
     [property: JsonPropertyName("playback_path")] string? PlaybackPath,
     [property: JsonPropertyName("replay_path")] string? ReplayPath,
-    [property: JsonPropertyName("controller_mode")] string? ControllerMode)
+    [property: JsonPropertyName("controller_mode")] string? ControllerMode,
+    [property: JsonPropertyName("arena_backend")] string ArenaBackend = "slippi",
+    [property: JsonPropertyName("melee_unlocked_path")] string? MeleeUnlockedPath = null,
+    [property: JsonPropertyName("proton_path")] string? ProtonPath = null,
+    [property: JsonPropertyName("slippi_user_dir")] string? SlippiUserDir = null,
+    [property: JsonPropertyName("lab_view")] bool LabView = true,
+    [property: JsonPropertyName("enable_ffa")] bool EnableFfa = false,
+    [property: JsonPropertyName("ffa_endpoint")] string? FfaEndpoint = null)
 {
     private static readonly JsonSerializerOptions Options = new()
     {

@@ -314,7 +314,7 @@ fn slippi_roots() -> Vec<PathBuf> {
     roots
 }
 
-fn slippi_user_paths() -> Vec<PathBuf> {
+pub fn slippi_user_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if cfg!(windows) {
         if let Some(value) = env::var_os("APPDATA") {

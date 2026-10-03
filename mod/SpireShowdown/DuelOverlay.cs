@@ -15,12 +15,24 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private readonly ColorRect _settingsPanel = new();
     private readonly OptionButton _controllerMode = new();
     private readonly Label _controllerDevice = new();
+    private readonly Button _cancelButton = new();
+    private readonly ArenaSummon _summon=new();
+    private readonly CheckButton _labToggle=new();
+    private readonly CheckButton _settingsLab=new();
+    private readonly CheckButton _settingsFfa=new();
+    private bool _arenaRunning, _unlocked;
+    private bool _revealed;
+    private double _inputElapsed;
+    private ulong _inputSequence;
     private double _elapsed;
     private double _menuPollElapsed;
     private string _baseStatus = "Preparing the arena";
 
     public event Action? SmokeTestRequested;
+    public event Action? CancelRequested;
     public event Action<string>? ControllerModeSaved;
+    public event Action<bool,bool>? ArenaPreferencesSaved;
+    public event Action<ControllerState>? ControllerSampled;
     public int LastActiveJoypad { get; private set; } = -1;
 
     public override void _Ready()
@@ -29,6 +41,9 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _backdrop.Color = new Color("111827f5");
         _backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_backdrop);
+        _summon.MouseFilter=Control.MouseFilterEnum.Ignore;
+        _summon.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _backdrop.AddChild(_summon);
 
         _relic.ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize;
         _relic.StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered;
@@ -54,6 +69,18 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _status.AnchorRight = 0.85f;
         _status.AnchorBottom = 0.75f;
         _backdrop.AddChild(_status);
+        _cancelButton.Text = "RETURN TO SPIRE";
+        _cancelButton.AnchorLeft = 0.38f;
+        _cancelButton.AnchorRight = 0.62f;
+        _cancelButton.AnchorTop = 0.86f;
+        _cancelButton.AnchorBottom = 0.93f;
+        _cancelButton.Pressed += () => CancelRequested?.Invoke();
+        _backdrop.AddChild(_cancelButton);
+        _labToggle.Text="LAB VIEW";
+        _labToggle.AnchorLeft=.1f; _labToggle.AnchorRight=.28f;
+        _labToggle.AnchorTop=.81f; _labToggle.AnchorBottom=.86f;
+        _labToggle.Toggled+=enabled=> { _settingsLab.SetPressedNoSignal(enabled); ArenaPreferencesSaved?.Invoke(enabled,_settingsFfa.ButtonPressed); };
+        _backdrop.AddChild(_labToggle);
 
         _version.Text = $"Spire Showdown {MainFile.Version}  •  STARTING";
         _version.HorizontalAlignment = HorizontalAlignment.Right;
@@ -81,7 +108,6 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
         HideOverlay();
         SetProcess(true);
-        SetProcessUnhandledKeyInput(true);
         SetProcessInput(true);
     }
 
@@ -89,9 +115,9 @@ internal sealed partial class DuelOverlay : CanvasLayer
     {
         _settingsPanel.Color = new Color("111827fa");
         _settingsPanel.AnchorLeft = 0.3f;
-        _settingsPanel.AnchorTop = 0.25f;
+        _settingsPanel.AnchorTop = 0.15f;
         _settingsPanel.AnchorRight = 0.7f;
-        _settingsPanel.AnchorBottom = 0.68f;
+        _settingsPanel.AnchorBottom = 0.82f;
         _settingsPanel.Visible = false;
         AddChild(_settingsPanel);
 
@@ -105,19 +131,29 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
         _controllerMode.AddItem("Auto-detect controller used in Spire", 0);
         _controllerMode.AddItem("GameCube USB adapter", 1);
+        _controllerMode.AddItem("Native Melee bindings (any pad / keyboard)",2);
+        _controllerMode.AddItem("Controller used in Spire only",3);
         _controllerMode.ItemSelected += _ => RefreshControllerLabel();
         _controllerMode.AnchorLeft = 0.12f;
-        _controllerMode.AnchorTop = 0.32f;
+        _controllerMode.AnchorTop = 0.22f;
         _controllerMode.AnchorRight = 0.88f;
-        _controllerMode.AnchorBottom = 0.46f;
+        _controllerMode.AnchorBottom = 0.32f;
         _settingsPanel.AddChild(_controllerMode);
 
         _controllerDevice.HorizontalAlignment = HorizontalAlignment.Center;
         _controllerDevice.AnchorLeft = 0.08f;
-        _controllerDevice.AnchorTop = 0.51f;
+        _controllerDevice.AnchorTop = 0.35f;
         _controllerDevice.AnchorRight = 0.92f;
-        _controllerDevice.AnchorBottom = 0.66f;
+        _controllerDevice.AnchorBottom = 0.45f;
         _settingsPanel.AddChild(_controllerDevice);
+        _settingsLab.Text="Lab view by default (Melee Unlocked)";
+        _settingsLab.AnchorLeft=.12f; _settingsLab.AnchorRight=.88f;
+        _settingsLab.AnchorTop=.48f; _settingsLab.AnchorBottom=.57f;
+        _settingsPanel.AddChild(_settingsLab);
+        _settingsFfa.Text="Experimental 3–4 player FFA (UDP endpoints required)";
+        _settingsFfa.AnchorLeft=.12f; _settingsFfa.AnchorRight=.88f;
+        _settingsFfa.AnchorTop=.61f; _settingsFfa.AnchorBottom=.70f;
+        _settingsPanel.AddChild(_settingsFfa);
 
         var save = new Button { Text = "SAVE AND CLOSE" };
         save.AnchorLeft = 0.25f;
@@ -126,8 +162,9 @@ internal sealed partial class DuelOverlay : CanvasLayer
         save.AnchorBottom = 0.88f;
         save.Pressed += () =>
         {
-            var mode = _controllerMode.Selected == 1 ? "gamecube_adapter" : "auto";
+            var mode = _controllerMode.Selected switch {1=>"gamecube_adapter",2=>"native",3=>"spire",_=>"auto"};
             ControllerModeSaved?.Invoke(mode);
+            ArenaPreferencesSaved?.Invoke(_settingsLab.ButtonPressed,_settingsFfa.ButtonPressed);
             _settingsPanel.Visible = false;
         };
         _settingsPanel.AddChild(save);
@@ -135,7 +172,7 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public void SetControllerMode(string? mode)
     {
-        _controllerMode.Select(mode == "gamecube_adapter" ? 1 : 0);
+        _controllerMode.Select(mode switch {"gamecube_adapter"=>1,"native"=>2,"spire"=>3,_=>0});
         RefreshControllerLabel();
     }
 
@@ -202,6 +239,16 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public override void _Input(InputEvent @event)
     {
+        // F8 is a developer arena shortcut, not menu navigation. Handle it
+        // before focused UI controls can consume it after returning from a
+        // match; an unhandled-only listener is not reliable across focus changes.
+        if (@event is InputEventKey { Pressed: true, Echo: false, Keycode: Key.F8 })
+        {
+            MainFile.Logger.Info("F8 CPU arena test requested");
+            GetViewport().SetInputAsHandled();
+            SmokeTestRequested?.Invoke();
+            return;
+        }
         if (@event is InputEventJoypadButton { Pressed: true } button)
         {
             if (!IsFakeController(Input.GetJoyName(button.Device)))
@@ -230,6 +277,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
     public void ShowLoading(RelicPickingResult result)
     {
         _elapsed = 0;
+        ResetPresentation();
+        _summon.Begin();
         _relic.Texture = result.relic.BigIcon;
         _baseStatus = "Preparing the arena";
         _status.Text = _baseStatus;
@@ -240,8 +289,10 @@ internal sealed partial class DuelOverlay : CanvasLayer
     public void ShowSmokeTestLoading()
     {
         _elapsed = 0;
+        ResetPresentation();
+        _summon.Begin();
         _relic.Texture = null;
-        _baseStatus = "Loading one-stock CPU fight";
+        _baseStatus = "Loading one-stock fight against level-9 Fox";
         _status.Text = _baseStatus;
         _backdrop.Visible = true;
         SetProcess(true);
@@ -255,8 +306,32 @@ internal sealed partial class DuelOverlay : CanvasLayer
 
     public void HideOverlay()
     {
+        _linuxArenaEvents?.Dispose();
+        _linuxArenaEvents = null;
+        _arenaRunning=false;
         _backdrop.Visible = false;
     }
+
+    public void SetArenaConfiguration(bool unlocked,bool lab,bool ffa)
+    {
+        _unlocked=unlocked; _labToggle.Visible=unlocked;
+        _labToggle.SetPressedNoSignal(lab); _settingsLab.SetPressedNoSignal(lab);
+        _settingsFfa.SetPressedNoSignal(ffa);
+    }
+    public void SetArenaRunning(bool running)=>_arenaRunning=running;
+    private void ResetPresentation()
+    {
+        _arenaRunning=false; _revealed=false;
+        _status.AnchorTop=.62f; _status.AnchorBottom=.75f; _relic.Visible=true;
+    }
+    public async Task FinishSummonAsync(CancellationToken token)
+    {
+        while (_summon.Elapsed<1.25) await Task.Delay(16,token);
+        _revealed=true; _relic.Visible=false; _status.AnchorTop=.82f; _status.AnchorBottom=.86f;
+        _summon.Reveal();
+    }
+
+    public void RestoreSpireFocus() => GetTree().Root.GrabFocus();
 
     public void SetRuntimeReady(bool ready)
     {
@@ -266,13 +341,20 @@ internal sealed partial class DuelOverlay : CanvasLayer
         _version.Modulate = ready ? new Color("9ef0b8ff") : new Color("ff9b9bff");
     }
 
+    private LinuxArenaEventGuard? _linuxArenaEvents;
+
     public (ulong ParentHandle, Bounds Bounds) GetNativeTarget()
     {
         var handle = DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle);
-        var size = DisplayServer.WindowGetSize();
-        var x = (int)(size.X * 0.04f);
-        var y = (int)(size.Y * 0.05f);
-        return (unchecked((ulong)handle), new Bounds(x, y, (uint)(size.X - x * 2), (uint)(size.Y - y * 2)));
+        _linuxArenaEvents ??= LinuxArenaEventGuard.Acquire(unchecked((ulong)handle));
+        // The frame lives in Godot's stretched/letterboxed UI, not raw window
+        // percentages. Transform its actual shared rectangle to client pixels.
+        var transform = _summon.GetViewport().GetFinalTransform() * _summon.GetGlobalTransformWithCanvas();
+        var rect = transform * _summon.ArenaRect;
+        var x = (int)Math.Round(rect.Position.X);
+        var y = (int)Math.Round(rect.Position.Y);
+        return (unchecked((ulong)handle), new Bounds(x,y,
+            (uint)Math.Max(1,Math.Round(rect.Size.X)),(uint)Math.Max(1,Math.Round(rect.Size.Y))));
     }
 
     public override void _Process(double delta)
@@ -290,8 +372,51 @@ internal sealed partial class DuelOverlay : CanvasLayer
         if (!_backdrop.Visible)
             return;
         _elapsed += delta;
+        _relic.Visible=!_revealed;
+        _inputElapsed+=delta;
+        if (_arenaRunning && _unlocked && _inputElapsed>=1.0/60 && _controllerMode.Selected is 0 or 3)
+        { _inputElapsed=0; ControllerSampled?.Invoke(SampleController()); }
         var dots = new string('.', 1 + (int)(_elapsed * 2) % 3);
         _status.Text = $"{_baseStatus}{dots}";
+    }
+
+    private ControllerState SampleController()
+    {
+        var ids=Input.GetConnectedJoypads();
+        var id=LastActiveJoypad>=0 && ids.Contains(LastActiveJoypad) ? LastActiveJoypad
+            : ids.FirstOrDefault(i=>!IsFakeController(Input.GetJoyName(i)),-1);
+        var connected=id>=0 && !IsFakeController(Input.GetJoyName(id));
+        ControllerState Keyboard()
+        {
+            bool KeyDown(Key key)=>Input.IsPhysicalKeyPressed(key);
+            ushort keys=0;
+            if(KeyDown(Key.Z)) keys|=0x100; // Attack
+            if(KeyDown(Key.X)) keys|=0x200; // Special
+            if(KeyDown(Key.Space)) keys|=0x400; // Jump
+            if(KeyDown(Key.Q)) keys|=0x40; // Shield
+            if(KeyDown(Key.E)) keys|=0x10; // Grab
+            if(KeyDown(Key.Enter)) keys|=0x1000;
+            var sx=(sbyte)((KeyDown(Key.Right)||KeyDown(Key.D)?80:0)-(KeyDown(Key.Left)||KeyDown(Key.A)?80:0));
+            var sy=(sbyte)((KeyDown(Key.Up)||KeyDown(Key.W)?80:0)-(KeyDown(Key.Down)||KeyDown(Key.S)?80:0));
+            return new(true,++_inputSequence,keys,sx,sy,0,0,0,0);
+        }
+        var keyboard=Keyboard();
+        if (!connected) return keyboard;
+        bool Pressed(JoyButton b)=>Input.IsJoyButtonPressed(id,b);
+        ushort buttons=0;
+        foreach(var (button,mask) in new (JoyButton,ushort)[] {
+            (JoyButton.A,0x100),(JoyButton.B,0x200),(JoyButton.X,0x400),(JoyButton.Y,0x800),
+            (JoyButton.Start,0x1000),(JoyButton.RightShoulder,0x10),(JoyButton.LeftShoulder,0x40),
+            (JoyButton.DpadLeft,1),(JoyButton.DpadRight,2),(JoyButton.DpadDown,4),(JoyButton.DpadUp,8) })
+            if(Pressed(button)) buttons|=mask;
+        byte Trigger(JoyAxis a)=>(byte)Math.Clamp((int)(Input.GetJoyAxis(id,a)*255),0,255);
+        var tl=Trigger(JoyAxis.TriggerLeft); var tr=Trigger(JoyAxis.TriggerRight);
+        if(tl>=230) buttons|=0x40; if(tr>=230) buttons|=0x20;
+        sbyte Axis(JoyAxis a,bool invert=false)=>(sbyte)Math.Clamp((int)(Input.GetJoyAxis(id,a)*(invert?-80:80)),-80,80);
+        var mainX=Axis(JoyAxis.LeftX); var mainY=Axis(JoyAxis.LeftY,true);
+        return new(true,++_inputSequence,(ushort)(buttons|keyboard.Buttons),
+            keyboard.Sx!=0?keyboard.Sx:mainX,keyboard.Sy!=0?keyboard.Sy:mainY,
+            Axis(JoyAxis.RightX),Axis(JoyAxis.RightY,true),tl,tr);
     }
 
     private static bool ContainsMainMenu(Node node)
@@ -306,11 +431,4 @@ internal sealed partial class DuelOverlay : CanvasLayer
         return false;
     }
 
-    public override void _UnhandledKeyInput(InputEvent @event)
-    {
-        if (@event is not InputEventKey { Pressed: true, Echo: false, Keycode: Key.F8 })
-            return;
-        GetViewport().SetInputAsHandled();
-        SmokeTestRequested?.Invoke();
-    }
 }

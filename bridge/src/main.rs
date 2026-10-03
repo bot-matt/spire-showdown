@@ -1,3 +1,4 @@
+mod arena;
 mod discovery;
 mod iso;
 mod process;
@@ -27,6 +28,13 @@ enum Command {
         slippi: Option<PathBuf>,
         #[arg(long)]
         iso: Option<PathBuf>,
+        /// Use the patched Melee Unlocked arena, not Dolphin.
+        #[arg(long)]
+        arena: Option<PathBuf>,
+        #[arg(long)]
+        proton: Option<PathBuf>,
+        #[arg(long)]
+        user_dir: Option<PathBuf>,
     },
     /// Start the authenticated loopback bridge server.
     Serve {
@@ -40,8 +48,26 @@ enum Command {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Doctor { slippi, iso } => {
-            let report = discovery::discover(slippi.as_deref(), iso.as_deref());
+        Command::Doctor {
+            slippi,
+            iso,
+            arena,
+            proton,
+            user_dir,
+        } => {
+            let mut report = discovery::discover(slippi.as_deref(), iso.as_deref());
+            if let Some(executable) = arena {
+                if let Err(problem) = (crate::arena::ArenaConfig {
+                    executable: Some(executable),
+                    proton,
+                    user_dir,
+                })
+                .resolve(&mut report)
+                {
+                    report.ready = false;
+                    report.problems.push(problem);
+                }
+            }
             println!("{}", serde_json::to_string_pretty(&report)?);
             if report.ready {
                 Ok(())

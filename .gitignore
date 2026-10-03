@@ -15,3 +15,5 @@ mod/Directory.Build.props
 work/
 .dotnet-cli-home/
 artifacts/
+__pycache__/
+*.pyc

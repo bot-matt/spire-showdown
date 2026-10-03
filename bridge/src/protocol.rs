@@ -20,6 +20,8 @@ pub enum Request {
     Preflight {
         slippi: Option<PathBuf>,
         iso: Option<PathBuf>,
+        #[serde(default)]
+        arena: Option<crate::arena::ArenaConfig>,
     },
     StartDuel {
         duel: DuelSpec,
@@ -32,6 +34,17 @@ pub enum Request {
         bounds: Bounds,
     },
     Status,
+    RevealWindow,
+    ArenaOptions {
+        lab_view: bool,
+        #[serde(default)]
+        volume_percent: Option<u8>,
+        #[serde(default)]
+        pad: Option<ControllerState>,
+    },
+    ResizeWindow {
+        bounds: Bounds,
+    },
     FinishDuel {
         duel_id: String,
     },
@@ -55,6 +68,39 @@ pub struct DuelSpec {
     pub cpu_test: bool,
     #[serde(default = "default_cpu_level")]
     pub cpu_level: u8,
+    #[serde(default = "default_lab_view")]
+    pub lab_view: bool,
+    #[serde(default)]
+    pub controller_mode: String,
+    #[serde(default)]
+    pub participants: Vec<Participant>,
+    #[serde(default)]
+    pub local_player_index: u8,
+}
+
+fn default_lab_view() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Participant {
+    pub player_id: u64,
+    pub character: u8,
+    pub connect_code: String,
+    pub endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControllerState {
+    pub connected: bool,
+    pub sequence: u64,
+    pub buttons: u16,
+    pub sx: i8,
+    pub sy: i8,
+    pub cx: i8,
+    pub cy: i8,
+    pub tl: u8,
+    pub tr: u8,
 }
 
 fn default_cpu_level() -> u8 {

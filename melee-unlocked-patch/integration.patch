@@ -1,0 +1,229 @@
+diff --git a/port/app/main.cpp b/port/app/main.cpp
+index c8acb70..e6f176a 100644
+--- a/port/app/main.cpp
++++ b/port/app/main.cpp
+@@ -6,7 +6,8 @@
+ #include <dbghelp.h>
+ #include <tlhelp32.h>
+ #include <psapi.h>
+-#include "host.h"
++#include "host.h"
++#include "spire_arena.h"
+ #include "gecko_data.h"
+ #include "slippi_playback.h"
+ #include "render_observer.h"
+@@ -1345,7 +1346,8 @@ static int melee_main(int argc, char** argv) {
+ #else
+     else if (a == "--replay") slippi::playback::set_replay(next());   // playback build: play this .slp
+ #endif
+-    else if (a == "--user-dir") slippi::online::config().user_dir = next();
++    else if (a == "--spire-duel") { std::string error; if (!spire::configure(next(),error)) { std::fprintf(stderr,"%s\n",error.c_str()); return 2; } }
++    else if (a == "--user-dir") slippi::online::config().user_dir = next();
+     else if (a == "--lobby-direct") {
+       std::string code = next();
+       const auto hash = code.find('#');
+@@ -1466,7 +1468,12 @@ static int melee_main(int argc, char** argv) {
+     else if (a == "--settings-tab") next();
+     else { usage(); return 2; }
+   }
+-  if ((hidden || headless || scripted) && !allow_matchmaking) slippi::Matchmaking::server_allowed = false;
++  if (spire::active()) {
++    if (gfx.native_source) { std::fprintf(stderr,"Spire arena requires Static Recomp\n"); return 2; }
++    gfx.pc_settings=true; gfx.lab_view=spire::lab_view(); gfx.lab_skip_scene=gfx.lab_view;
++    gfx.fullscreen=false; gfx.exclusive_fullscreen=false;
++  }
++  if ((hidden || headless || scripted) && !allow_matchmaking) slippi::Matchmaking::server_allowed = false;
+   if (slippi::Matchmaking::local_peer.test_stage >= 0) {
+     const int stage = slippi::Matchmaking::local_peer.test_stage;
+     // A mod disc (--mod-base-iso) has its own stages: any id, so a mod's stage can be tested.
+@@ -1752,7 +1759,8 @@ static int melee_main(int argc, char** argv) {
+   // match start (the Source Port plays its native version instead).
+   host::hackpack_ai::boot();
+ #endif
+-  host::boot_setup();
++  host::boot_setup();
++  spire::install();
+   {
+     std::vector<gx::texpack::CosmeticCompanion> companions;
+     for (const auto& item : host::cosmetics::active_companions())
+diff --git a/port/runtime/gx/gx_d3d11.cpp b/port/runtime/gx/gx_d3d11.cpp
+index 8b03ed4..3f9cad7 100644
+--- a/port/runtime/gx/gx_d3d11.cpp
++++ b/port/runtime/gx/gx_d3d11.cpp
+@@ -53,7 +53,8 @@
+ #include "gecko_data.h"
+ #ifdef GX_PC_SETTINGS
+ #include "pc_settings.h"
+-#include "lab_view.h"
++#include "lab_view.h"
++#include "spire_arena.h"
+ #endif
+ 
+ #pragma comment(lib, "d3d11.lib")
+@@ -1734,7 +1735,7 @@ void D3D11Backend::submit_frame(const Frame& frame, const DrawMatrices* override
+     if (pick_scale() != scale_) { host::log("d3d11: dropping %zu EFB copy textures, internal scale %d -> %d", efb_copies_.size(), scale_, pick_scale()); efb_copies_.clear(); create_efb(); }
+   }
+   // After the panel, where the Lab view decided whether it covers this frame (see gx_d3d12.cpp).
+-  lab_skip_scene_ = settings_ui_ && opts_.lab_skip_scene && frame_in_match(frame) && lab::covering();
++  lab_skip_scene_ = settings_ui_ && opts_.lab_skip_scene && (frame_in_match(frame) || spire::active()) && lab::covering();
+ #endif
+   // Switching packs on or off in the panel invalidates every cached texture, because each was
+   // built with or without its replacement. D3D11 holds its own references until the cache is
+diff --git a/port/runtime/gx/pc_settings.cpp b/port/runtime/gx/pc_settings.cpp
+index 763eb60..13fe4bc 100644
+--- a/port/runtime/gx/pc_settings.cpp
++++ b/port/runtime/gx/pc_settings.cpp
+@@ -41,12 +41,13 @@
+ #include "hackpack_ai.h"
+ #include "mod_profile.h"
+ #include "mod_scan.h"
+-#include "lab_view.h"
++#include "lab_view.h"
++#include "spire_arena.h"
+ #include "training_overlay.h"
+ #include "net_overlay.h"
+ // Lab view is hidden until its silhouette packs can ship at a reasonable size: no F3 toggle, no
+ // Overlays switch, never drawn (so the renderers never skip the scene for it). Code kept intact.
+-constexpr bool kLabViewAvailable = false;
++constexpr bool kLabViewAvailable = true;
+ #ifndef MELEE_PORT_VERSION
+ #define MELEE_PORT_VERSION "dev"
+ #endif
+@@ -3641,7 +3642,8 @@ bool settings_frame(SettingsState& state, RenderOptions& options) {
+   if (kLabViewAvailable && !options.native_source && ImGui::IsKeyPressed(ImGuiKey_F3, false)) { options.lab_view = !options.lab_view; state.dirty = true; host::log("lab view: %s", options.lab_view ? "on" : "off"); }
+   // Drawn first, on the background list, so every overlay and window below lands on top of it.
+   // Called every frame, off or on, so lab::covering() always describes this frame.
+-  lab::draw(kLabViewAvailable && options.lab_view && !options.native_source && !state.fill_window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y);
++  if (spire::active()) { options.lab_view=spire::lab_view(); options.lab_skip_scene=options.lab_view; }
++  lab::draw(kLabViewAvailable && options.lab_view && !options.native_source && !state.fill_window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y);
+   // 20XX TE's Input display is the same switch as the Controller overlay (te_pairs_linked), and the
+   // overlay already shows the controllers: with it on, TE's own display is not drawn as well.
+   const bool te_input_row = training_overlay::input_display() && !options.input_overlay;
+diff --git a/port/runtime/hle/exi_slippi.cpp b/port/runtime/hle/exi_slippi.cpp
+index 94f855c..5fe6657 100644
+--- a/port/runtime/hle/exi_slippi.cpp
++++ b/port/runtime/hle/exi_slippi.cpp
+@@ -5,7 +5,8 @@
+ #include "slippi_online.h"
+ #include "native_practice.h"
+ #include "gecko_data.h"
+-#include "host.h"
++#include "host.h"
++#include "spire_arena.h"
+ #include "vcdiff.h"
+ #include "lab_view.h"
+ #define NOMINMAX
+@@ -254,8 +255,8 @@ void write_to_file(const uint8_t* payload, uint32_t length, const char* option)
+   // exactly the stream the Lab view draws from. It only reads the bytes.
+   // Lab view is hidden for now (see kLabViewAvailable in pc_settings.cpp), so it is not fed either:
+   // no event parsing and no silhouette loading while nothing can draw it.
+-  constexpr bool kLabViewFeed = false;
+-  if (kLabViewFeed) lab::feed(payload, length);
++  spire::event(payload,length);
++  if (spire::active()) lab::feed(payload,length);
+   if (std::strcmp(option, "create") == 0) { g_held_code_chunks.clear(); create_file(); }
+   if (!g_file) return;
+   if (length > 0 && payload[0] == CMD_RECEIVE_POST_FRAME_UPDATE && length >= 8) {
+diff --git a/port/runtime/hle/slippi_online.cpp b/port/runtime/hle/slippi_online.cpp
+index bb898e2..299a4a5 100644
+--- a/port/runtime/hle/slippi_online.cpp
++++ b/port/runtime/hle/slippi_online.cpp
+@@ -8,7 +8,8 @@
+ #include "slippi_net.h"
+ #include "slippi_report.h"
+ #include "exi_slippi.h"
+-#include "host.h"
++#include "host.h"
++#include "spire_arena.h"
+ #include "window.h"
+ #include "discord_presence.h"
+ #include "gx_core.h"
+@@ -1004,7 +1005,8 @@ void prepare_online_match_state(std::vector<uint8_t>& q) {
+   uint64_t items = 0xF80000000F000000ull;
+   if (g_recent_mm_result.items != 0) { items |= (uint64_t)g_recent_mm_result.items << 28; block[0xB] = 3; }
+   for (int i = 0; i < 8; ++i) block[0x23 + i] = (uint8_t)(items >> (56 - 8 * i));
+-  append_u32(q, rng_offset);
++  spire::rules(block.data(),static_cast<uint32_t>(block.size()));
++  append_u32(q, rng_offset);
+   q.push_back((uint8_t)g_config.delay);
+   q.push_back(sent_chat_message_id);
+   q.push_back(chat_message_id);
+diff --git a/port/runtime/host/host.cpp b/port/runtime/host/host.cpp
+index 69137f5..9fb0cc5 100644
+--- a/port/runtime/host/host.cpp
++++ b/port/runtime/host/host.cpp
+@@ -1,6 +1,7 @@
+ // Host services: memory, disc, boot, event delivery, time, MMIO, logging.
+ // SPDX-License-Identifier: GPL-2.0-or-later
+-#include "host.h"
++#include "host.h"
++#include "spire_arena.h"
+ #include "audio.h"
+ #include "cosmetic_mods.h"
+ #include "mod_profile.h"
+@@ -1654,7 +1655,8 @@ bool wait_until_console_time(uint64_t tb) {
+   return true;
+ }
+ 
+-void retrace() {
++void retrace() {
++  spire::tick();
+   struct Guard { Guard() { g_in_retrace = true; } ~Guard() { g_in_retrace = false; } } guard;
+   g_frame_submitted = false;
+   ++g_retraces;
+diff --git a/port/runtime/host/window.cpp b/port/runtime/host/window.cpp
+index 01c0a00..e4a2b85 100644
+--- a/port/runtime/host/window.cpp
++++ b/port/runtime/host/window.cpp
+@@ -12,6 +12,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include "host.h"
++#include "spire_arena.h"
+ #include "window.h"
+ #include "input_bindings.h"
+ #include "settings_chord.h"
+@@ -136,14 +137,15 @@ void* window_create(int w, int h, const wchar_t* title, bool visible) {
+   rid[1].usUsagePage = 0x01; rid[1].usUsage = 0x04; rid[1].dwFlags = RIDEV_INPUTSINK;
+   RECT r{0, 0, w, h};
+   AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+-  g_hwnd = CreateWindowExW(0, wc.lpszClassName, title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
++  g_hwnd = CreateWindowExW(spire::active()?WS_EX_TOOLWINDOW:0, wc.lpszClassName, spire::active()?L"Spire Showdown Arena":title,
++                           spire::active()?WS_POPUP:WS_OVERLAPPEDWINDOW, spire::active()?-32000:CW_USEDEFAULT, spire::active()?-32000:CW_USEDEFAULT,
+                            r.right - r.left, r.bottom - r.top, nullptr, nullptr, inst, nullptr);
+   if (!g_hwnd) die("cannot create native window");
+   rid[0].hwndTarget = g_hwnd; rid[1].hwndTarget = g_hwnd;
+   RegisterRawInputDevices(rid, 2, sizeof rid[0]);
+   g_closed = false;
+   g_client_w = w; g_client_h = h;
+-  if (visible) ShowWindow(g_hwnd, SW_SHOW);
++  if (visible) ShowWindow(g_hwnd, spire::active()?SW_SHOWNOACTIVATE:SW_SHOW);
+   return g_hwnd;
+ }
+ 
+@@ -183,7 +185,7 @@ std::atomic<uint64_t> g_pending_client_size{0};   // (w << 32) | h, 0 = nothing
+ void apply_client_size(int w, int h) {
+   if (!g_hwnd || g_fullscreen || w < 320 || h < 240) return;
+   MONITORINFO info{sizeof(info)};
+-  if (GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &info)) {
++  if (!spire::active() && GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &info)) {
+     // A client area larger than the monitor's work area leaves the title bar off screen with no way
+     // to drag it back, so cap it at what the desktop can actually show.
+     RECT frame{0, 0, w, h};
+@@ -303,7 +305,7 @@ void window_pump() {
+   }
+ }
+ 
+-void window_set_title(const wchar_t* title) { if (g_hwnd) SetWindowTextW(g_hwnd, title); }
++void window_set_title(const wchar_t* title) { if (g_hwnd) SetWindowTextW(g_hwnd, spire::active()?L"Spire Showdown Arena":title); }
+ 
+ // Compiling the pipeline cache on the first launch of a new version keeps the first frame back for
+ // 20 seconds or more on some machines, with nothing in the game window, which looks like a hang.
+@@ -851,6 +853,7 @@ void input_poll(PadState out[4]) {
+   struct UiSnapshot {
+     PadState* pads; bool gamecube = false;
+     ~UiSnapshot() {
++      spire::input(pads);
+       std::lock_guard<std::mutex> lock(g_ui_pad_mutex);
+       bool toggle_settings = false;
+       for (int i = 0; i < 4; ++i) {

@@ -65,6 +65,42 @@ available when the game itself runs as a native Wayland surface.
 
 ## Guided installation
 
+### Experimental Melee Unlocked arena (alpha.14)
+
+Starting with alpha.14, `install-bazzite.sh` and `install-windows.ps1` install
+the embedded Melee Unlocked arena. The explicit `install-arena-*` aliases do
+the same thing. Both require the matching arena ZIP and `SHA256SUMS` from
+alpha.14 or newer; older releases do not contain that payload.
+
+On another Bazzite machine, the installer discovers Steam libraries (including
+external drives), native Spire, and Steam's Proton. Install Proton Experimental
+through Steam's Tools library if it is missing. The script does not install
+system-wide Wine or compilers. Windows uses the native arena executable and
+does not require Proton. Both installers download the matching platform mod
+and arena, verify checksums, back up replaced files, and preserve settings.
+Each machine needs BaseLib and its own legally dumped Melee NTSC-U 1.02 ISO.
+Slippi login is needed for online play, not for the CPU test.
+
+Run the downloaded script with an
+explicit release tag to keep both machines on the same version:
+
+```bash
+bash ./install-bazzite.sh --release v0.2.0-alpha.14
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Release v0.2.0-alpha.14
+```
+
+The Bazzite script prints the required `--display-driver x11` Steam option.
+Windows installer execution and live cross-machine multiplayer remain
+unverified. See `melee-unlocked-patch/README.md` for arena verification status.
+
+### Existing Dolphin backend
+
+The previous installers are preserved as `install-slippi-bazzite.sh` and
+`install-slippi-windows.ps1`; they are not the alpha.14 default.
+
 Download the platform mod artifact and matching patched Slippi artifact from
 GitHub Actions, then extract the mod artifact. Each platform bundle contains a
 guided installer next to its `SpireShowdown` payload:

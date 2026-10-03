@@ -104,14 +104,24 @@ internal sealed class BridgeHost : IAsyncDisposable
             return;
         try
         {
-            if (!_process.HasExited)
-                _process.Kill(entireProcessTree: true);
+            // Closing the owner's socket makes the bridge drop its runtime,
+            // including Wine processes that have daemonized outside our child
+            // tree. Killing the bridge first prevents that cleanup from running.
+            Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         catch
         {
             // The game is already exiting; best-effort process cleanup only.
         }
-        Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        try
+        {
+            if (!_process.HasExited && !_process.WaitForExit(4000))
+                _process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // Forced cleanup is bounded even if the bridge is already gone.
+        }
         _process.Dispose();
     }
 }

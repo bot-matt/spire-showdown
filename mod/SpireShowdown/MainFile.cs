@@ -9,7 +9,7 @@ namespace SpireShowdown;
 public partial class MainFile : Node
 {
     public const string ModId = "SpireShowdown";
-    public const string Version = "v0.2.0-alpha.10";
+    public const string Version = "v0.2.0-alpha.14";
 
     public static MegaCrit.Sts2.Core.Logging.Logger Logger { get; } = new(
         ModId,
