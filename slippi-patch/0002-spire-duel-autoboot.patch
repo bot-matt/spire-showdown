@@ -1,5 +1,5 @@
 diff --git a/Common/Common.s b/Common/Common.s
-index 71d9cfa792e750391a822d43fbbcaeeb5365e6bf..a9bf1a53ddf01b706a4a92df066339f3f394de1e 100644
+index 71d9cfa..a9bf1a5 100644
 --- a/Common/Common.s
 +++ b/Common/Common.s
 @@ -544,6 +544,7 @@ add \reg, r3, r4
@@ -11,7 +11,7 @@ index 71d9cfa792e750391a822d43fbbcaeeb5365e6bf..a9bf1a53ddf01b706a4a92df066339f3
  .set CONST_SlippiCmdFileLength, 0xD1
  .set CONST_SlippiCmdFileLoad, 0xD2
 diff --git a/Online/Menus/CSS/HandleInputsOnCSS.asm b/Online/Menus/CSS/HandleInputsOnCSS.asm
-index 08699774ef724da8edadfcaafea1818b79793173..44aaa6fad8887032550a346c649c79563de0b6b7 100644
+index 0869977..44aaa6f 100644
 --- a/Online/Menus/CSS/HandleInputsOnCSS.asm
 +++ b/Online/Menus/CSS/HandleInputsOnCSS.asm
 @@ -119,6 +119,25 @@ cmpwi r3, 0
@@ -79,14 +79,15 @@ index 08699774ef724da8edadfcaafea1818b79793173..44aaa6fad8887032550a346c649c7956
  ################################################################################
  # Skip starting match
 diff --git a/Online/Slippi Online Scene/boot.asm b/Online/Slippi Online Scene/boot.asm
-index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3e0b441d1 100644
+index 1e52aec..0072026 100644
 --- a/Online/Slippi Online Scene/boot.asm	
 +++ b/Online/Slippi Online Scene/boot.asm	
-@@ -39,6 +39,7 @@ b EXIT
- ################################################################################
- FN_OnFirstMenuLoad_blrl:
- blrl
-+backup
+@@ -1,6 +1,6 @@
+ #To be inserted at 801bfa20
+ .include "../../Common/Common.s"
+-#.include "../Globals.s"
++.include "../Online.s"
+ .include "Header.s"
  
  # Get static function table
  branchl r12, FG_UserDisplay
@@ -94,8 +95,10 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
  mtctr r12
  bctrl
  
-+# Ask Dolphin whether this launch carries a Spire Showdown duel contract.
-+li r3, 1
+ backup
+ 
++# Choose the CPU scene before entering the first menu.
++li r3, 8
 +branchl r12, HSD_MemAlloc
 +mr r29, r3
 +li r3, CONST_SlippiCmdGetSpireDuel
@@ -105,13 +108,20 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
 +li r5, CONST_ExiWrite
 +branchl r12, FN_EXITransferBuffer
 +mr r3, r29
-+li r4, 1
++li r4, 8
 +li r5, CONST_ExiRead
 +branchl r12, FN_EXITransferBuffer
 +lbz r28, 0(r29)
 +lbz r27, 1(r29)
 +mr r3, r29
 +branchl r12, HSD_Free
++cmpwi r28, 1
++bne NORMAL_BOOT
++cmpwi r27, 1
++bne NORMAL_BOOT
++restore
++li r3, 0x0E
++b BOOT_END
 +
 +cmpwi r28, 0
 +beq FN_OnFirstMenuLoad_NORMAL
@@ -144,10 +154,17 @@ index 1e52aecb73aae020b4e419d6cf8fca83dec10109..9dad7cf1ec8facf42814f5ea6b4a56e3
  mr r0, r3 # Option to select
  stb r0, 0x1(r31)
  
-+FN_OnFirstMenuLoad_RESTORE_HANDLER:
- # Restore original handler, this handler was just a one-shot for boot
- load r4, 0x803dd8e8 # Location where scene load handlers start
- load r3, 0x801b1360 # Original title -> menu transition handler
+ ################################################################################
+ # OnFirstMenuLoad
+@@ -39,6 +82,7 @@ b EXIT
+ ################################################################################
+ FN_OnFirstMenuLoad_blrl:
+ blrl
++backup
+ 
+ # Get static function table
+ branchl r12, FG_UserDisplay
+@@ -71,6 +115,7 @@ load r3, 0x801b1360 # Original title -> menu transition handler
  stw r3, 0xa0(r4)
  
  # Go to end of function
