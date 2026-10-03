@@ -173,3 +173,9 @@ joypad requirement. The engine receives attack (`buttons 256`) and right-stick
 movement (`stick 80,0`), completes the CPU fight, and restores Spire. Only the
 probe assembly contains this synthetic injection; it is removed before building
 the shipped DLL. This does not verify a physical Steam Controller connection.
+The clean production DLL also restores actual X11 focus from a clicked arena
+child to Spire in forwarding modes, letting Spire's focus-gated controller
+updater continue. A real-Spire probe verifies that restoration and separately
+verifies that another application keeps focus. The repair checks native X11
+focus rather than Godot's cached HasFocus flag, which can be stale for foreign
+children. Native binding mode does not apply this focus repair.

@@ -17,7 +17,7 @@ internal sealed class LinuxArenaKeyboard : IDisposable
         if(_display==0) throw new InvalidOperationException("Cannot open X11 keyboard input");
     }
 
-    public ControllerState? Read()
+    public bool OwnsFocus()
     {
         Focus(_display,out nuint window,out _);
         bool owned=false;
@@ -29,7 +29,12 @@ internal sealed class LinuxArenaKeyboard : IDisposable
             if(parent==window) break;
             window=parent;
         }
-        if(!owned) return null;
+        return owned;
+    }
+
+    public ControllerState? Read()
+    {
+        if(!OwnsFocus()) return null;
         Query(_display,_keys);
         bool Down(ulong symbol)
         {
@@ -48,6 +53,16 @@ internal sealed class LinuxArenaKeyboard : IDisposable
         return new(true,0,buttons,sx,sy,0,0,0,0,"linux_keyboard");
     }
 
+    public void RestoreParentFocusFromChild()
+    {
+        Focus(_display,out nuint focused,out _);
+        if(focused==_parent || !OwnsFocus()) return;
+        // Godot's cached HasFocus flag can remain true after foreign-child
+        // focus changes. Use the actual X11 focus, not that cached flag.
+        SetFocus(_display,_parent,2,0);
+        Flush(_display);
+    }
+
     public void Dispose() { if(_display!=0) Close(_display); }
     private const string Library="libX11.so.6";
     [DllImport(Library,EntryPoint="XOpenDisplay")] private static extern nint Open(nint name);
@@ -57,4 +72,6 @@ internal sealed class LinuxArenaKeyboard : IDisposable
     [DllImport(Library,EntryPoint="XFree")] private static extern int Free(nint value);
     [DllImport(Library,EntryPoint="XQueryKeymap")] private static extern int Query(nint display,[Out] byte[] keys);
     [DllImport(Library,EntryPoint="XKeysymToKeycode")] private static extern byte Code(nint display,nuint symbol);
+    [DllImport(Library,EntryPoint="XSetInputFocus")] private static extern int SetFocus(nint display,nuint window,int revert,nuint time);
+    [DllImport(Library,EntryPoint="XFlush")] private static extern int Flush(nint display);
 }

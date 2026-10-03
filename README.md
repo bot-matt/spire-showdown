@@ -122,6 +122,9 @@ underlying Spire menu during a match. Native mode bypasses this forwarding;
 choose Auto for Steam Input. Spire's action layout does not expose every raw
 Steam-controller axis, so full custom C-stick/analog-trigger support is not
 claimed for that path.
+On Bazzite, Auto/Spire restores focus to the Spire parent when focus moves into
+its Wine arena child, because Spire pauses its controller updater on focus loss.
+It does not reclaim focus from other applications; Native mode is unaffected.
 
 CPU tests and multiplayer both force item frequency None and clear the complete
 item mask. The real game-start event is checked before READY; a match with items

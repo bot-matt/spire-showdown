@@ -418,6 +418,11 @@ internal sealed partial class DuelOverlay : CanvasLayer
             _inputElapsed=0;
             if(OperatingSystem.IsLinux() && _arenaControllerMode is 0 or 3)
                 _linuxKeyboard??=new LinuxArenaKeyboard(unchecked((ulong)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle)));
+            // Spire's NControllerManager skips its Steam Input updater when
+            // NGame.IsGameFocusedWindow is false. A click in Wine can move X
+            // focus into the arena child. Restore ONLY our own parent's focus,
+            // never pull it back from another application.
+            _linuxKeyboard?.RestoreParentFocusFromChild();
             if(OperatingSystem.IsLinux() && _arenaControllerMode is 0 or 1)
                 _linuxAdapter??=new LinuxGameCubeAdapter(message=>MainFile.Logger.Info(message));
             var adapter=_linuxAdapter?.Sample;
