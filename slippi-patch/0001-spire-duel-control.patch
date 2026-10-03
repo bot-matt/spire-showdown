@@ -137,7 +137,7 @@ index 27c5a5d..a9aa44c 100644
  
  	// Log the direct code to file.
  	if (search.mode == SlippiMatchmaking::DIRECT)
-@@ -2393,6 +2485,17 @@ void CEXISlippi::prepareOnlineMatchState()
+@@ -2393,6 +2488,17 @@ void CEXISlippi::prepareOnlineMatchState()
  		{
  			orderedSelections[rps[i].playerIdx] = &rps[i];
  		}
@@ -165,7 +165,7 @@ index 27c5a5d..a9aa44c 100644
  
  			u16 *current_health = reinterpret_cast<u16 *>(&onlineMatchBlock[0x70 + i * 0x24]);
  			*current_health = Common::swap16(desync_recovery.state.fighters[i].current_health);
-@@ -2778,7 +2881,16 @@ void CEXISlippi::setMatchSelections(u8 *payload)
+@@ -2778,7 +2885,16 @@ void CEXISlippi::setMatchSelections(u8 *payload)
  	s.alt_stage_mode = payload[8];
  
  	s.isStageSelected = stageSelectOption == 1 || stageSelectOption == 3;
@@ -192,7 +192,7 @@ index 27c5a5d..a9aa44c 100644
  	int stageId = Common::FromBigEndian(*(u16 *)&query.gameInfoBlock[0xE]);
  	u8 gameEndMethod = query.gameEndMethod;
  	s8 lrasInitiator = query.lrasInitiator;
-@@ -3372,6 +3484,19 @@ void CEXISlippi::handleGetRank()
+@@ -3372,6 +3490,19 @@ void CEXISlippi::handleGetRank()
  	m_read_queue.push_back(static_cast<u8>(rank_info.rank_change));
  }
  
