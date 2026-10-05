@@ -57,9 +57,26 @@ void read_control() {
   if (std::chrono::steady_clock::now() - last_control < std::chrono::milliseconds(8)) return;
   last_control = std::chrono::steady_clock::now();
   try {
-    std::ifstream f(std::filesystem::u8path(contract + ".control.json"));
-    if (!f) return;
-    auto candidate = json::parse(f);
+    // The bridge publishes by atomic rename. CRT ifstream does not guarantee
+    // FILE_SHARE_DELETE on Windows, so a concurrent reader could make a fresh
+    // input packet's rename fail. Read one bounded snapshot with delete sharing
+    // and close the handle before parsing (also supported through Proton).
+    const auto path=std::filesystem::u8path(contract + ".control.json");
+    HANDLE file=CreateFileW(path.c_str(),GENERIC_READ,
+        FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(file==INVALID_HANDLE_VALUE) return;
+    LARGE_INTEGER size{};
+    if(!GetFileSizeEx(file,&size) || size.QuadPart<=0 || size.QuadPart>65536) {
+      CloseHandle(file); return;
+    }
+    std::string encoded(static_cast<size_t>(size.QuadPart),'\0');
+    DWORD read=0;
+    const bool valid=ReadFile(file,encoded.data(),static_cast<DWORD>(encoded.size()),&read,nullptr)
+        && read==encoded.size();
+    CloseHandle(file);
+    if(!valid) return;
+    auto candidate = json::parse(encoded);
     if (candidate.value("duel_id", std::string()) != spec["duel_id"].get<std::string>()) return;
     control = std::move(candidate);
     const int volume = std::clamp(control.value("volume_percent", 0), 0, 100);
