@@ -123,6 +123,8 @@ fn handle_client(
     expected_token: &str,
     runtime: &Arc<Mutex<BridgeRuntime>>,
 ) -> Result<bool> {
+    // Control replies are latency-sensitive, not bulk transfers.
+    stream.set_nodelay(true)?;
     let reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream);
 

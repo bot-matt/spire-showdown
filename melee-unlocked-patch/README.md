@@ -5,7 +5,7 @@ A stock Melee Unlocked executable is deliberately rejected:
 the bridge needs the boot, readiness, control and result contract below.
 
 Pinned upstream: `Hero88go/melee-unlocked` at
-`e5b349479bc4171a805b90e26d243c9c357729e4` (0.8.67).
+`49db07c4c46644c64afeacb1cf285604e728cfaa` (0.8.75).
 Use **Static Recomp**, not Source Port: upstream disables Lab view for Source Port.
 No ISO, extracted DOL, or generated retail translation sources belong in this repo.
 
@@ -16,7 +16,7 @@ Run in a Visual Studio x64 developer shell with CMake, Ninja, Python and Git:
 ```powershell
 git clone https://github.com/Hero88go/melee-unlocked.git melee-unlocked
 cd melee-unlocked
-git checkout e5b349479bc4171a805b90e26d243c9c357729e4
+git checkout 49db07c4c46644c64afeacb1cf285604e728cfaa
 git submodule update --init sourceport/extern/melee
 git apply --ignore-whitespace ../spire-showdown/melee-unlocked-patch/integration.patch
 Copy-Item ../spire-showdown/melee-unlocked-patch/spire_arena.* port/runtime/host/
@@ -41,6 +41,7 @@ The archive `spire-showdown-arena-Windows-x86_64.zip` must contain:
 ```text
 arena/
   melee_port.exe
+  dxr_pathtrace.dxil
   SpireArena.json
   Sys/GameFiles/GALE01/...
   Lab/*.lab
@@ -89,6 +90,13 @@ attached, the mod suspends only Godot's X11 SubstructureNotify subscription,
 then restores it after cleanup; foreign resize events must not resize Godot's
 cached main viewport.
 Stock upstream runtime defaults and memory-card prompts are not a readiness signal.
+
+Alpha.17 moves input RPCs off Godot's UI synchronization context, disables TCP
+Nagle buffering on both ends, and samples controllers every active Spire frame.
+Status is polled separately at 10 Hz; unchanged viewport/options are not reapplied.
+The arena follows the monitor refresh rate with predictive presentation, avoiding
+the extra frame of delayed interpolation. Gameplay and netplay remain 60 Hz.
+This changes local transport/presentation, not Slippi's negotiated online delay.
 
 Two players use Slippi Direct. Three/four players use upstream experimental
 `--local-peer` with explicit reachable IPv4 UDP endpoints; this is not automatic

@@ -311,15 +311,49 @@ internal static partial class DuelRuntime
         }
     }
 
+    private sealed record ArenaPreferences(bool LabView, byte VolumePercent);
+
     private static async Task<BridgeResponse> WaitForPhaseAsync(
         BridgeClient client,
         string wanted,
         CancellationToken cancellationToken)
     {
         var nextResize=DateTime.MinValue;
+        Bounds? previousBounds = null;
+        var preferences = new ArenaPreferences(_settings?.LabView ?? true, 0);
+        using var inputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        // Do not put gameplay input behind Godot's synchronization context,
+        // status polling or a per-RPC frame wait. One in-flight sample, no backlog.
+        var inputPump = IsUnlocked ? Task.Run(async () =>
+        {
+            ControllerState? previousPad = null;
+            ArenaPreferences? previousPreferences = null;
+            while (true)
+            {
+                inputCancellation.Token.ThrowIfCancellationRequested();
+                var current = Volatile.Read(ref preferences);
+                var pad = _latestController;
+                if (pad == previousPad && current == previousPreferences)
+                {
+                    await Task.Delay(4, inputCancellation.Token).ConfigureAwait(false);
+                    continue;
+                }
+                var reply = await client.SendAsync("arena_options", new {
+                    lab_view=current.LabView, pad,
+                    volume_percent=current.VolumePercent
+                }, inputCancellation.Token).ConfigureAwait(false);
+                reply.Require("accepted");
+                previousPad = pad;
+                previousPreferences = current;
+                await Task.Delay(4, inputCancellation.Token).ConfigureAwait(false);
+            }
+        }, inputCancellation.Token) : null;
+        try
+        {
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (inputPump?.IsCompleted == true) await inputPump;
             var status = await client.SendAsync<object>("status", null, cancellationToken);
             status.Require("status");
             var arenaError=status.String("slippi_error");
@@ -334,8 +368,7 @@ internal static partial class DuelRuntime
                 var audioSettings = MegaCrit.Sts2.Core.Saves.SaveManager.Instance.SettingsSave;
                 var gain = Math.Clamp(audioSettings.VolumeMaster,0,1) * Math.Clamp(audioSettings.VolumeSfx,0,1);
                 var volume = (byte)Math.Clamp((int)Math.Round(100 * gain * gain),0,100);
-                var options=await client.SendAsync("arena_options",new {lab_view=_settings.LabView,pad=_latestController,volume_percent=volume},cancellationToken);
-                options.Require("accepted");
+                Volatile.Write(ref preferences, new ArenaPreferences(_settings.LabView, volume));
             }
             if (phase is "cancelled" or "failed")
                 throw new InvalidOperationException("The Melee match ended without a winner.");
@@ -351,14 +384,28 @@ internal static partial class DuelRuntime
             {
                 nextResize=DateTime.UtcNow.AddMilliseconds(250);
                 var target = _overlay.GetNativeTarget();
-                var resized = await client.SendAsync("resize_window", new { bounds = target.Bounds }, cancellationToken);
-                resized.Require("accepted");
+                if (target.Bounds != previousBounds)
+                {
+                    var resized = await client.SendAsync("resize_window", new { bounds = target.Bounds }, cancellationToken);
+                    resized.Require("accepted");
+                    previousBounds = target.Bounds;
+                }
             }
             if (phase == wanted)
                 return status;
             if (phase == "completed" && wanted != "completed")
                 throw new InvalidOperationException("Slippi ended before its window became ready.");
-            await Task.Delay(IsUnlocked?16:75, cancellationToken);
+            await Task.Delay(IsUnlocked?100:75, cancellationToken);
+        }
+        }
+        finally
+        {
+            inputCancellation.Cancel();
+            if (inputPump is not null)
+            {
+                try { await inputPump; }
+                catch (OperationCanceledException) when (inputCancellation.IsCancellationRequested) { }
+            }
         }
     }
 

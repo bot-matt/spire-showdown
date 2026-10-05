@@ -26,6 +26,8 @@ public sealed class BridgeClient : IAsyncDisposable
     public async Task ConnectAsync(ushort port, CancellationToken cancellationToken)
     {
         await _client.ConnectAsync("127.0.0.1", port, cancellationToken);
+        // Tiny input packets must not wait for TCP's delayed-ACK/Nagle timer.
+        _client.NoDelay = true;
         var stream = _client.GetStream();
         _reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
         _writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true)
@@ -40,7 +42,7 @@ public sealed class BridgeClient : IAsyncDisposable
         T? payload,
         CancellationToken cancellationToken)
     {
-        await _requests.WaitAsync(cancellationToken);
+        await _requests.WaitAsync(cancellationToken).ConfigureAwait(false);
         try {
         if (_reader is null || _writer is null)
             throw new InvalidOperationException("Bridge client is not connected.");
@@ -53,14 +55,14 @@ public sealed class BridgeClient : IAsyncDisposable
             _token,
             type,
             payload);
-        await _writer.WriteLineAsync(JsonSerializer.Serialize(envelope, JsonOptions));
+        await _writer.WriteLineAsync(JsonSerializer.Serialize(envelope, JsonOptions)).ConfigureAwait(false);
 
         // Once a command is on the wire, consume its reply even if the duel
         // gets cancelled. Otherwise the next cleanup command reads the old
         // reply, loses framing, and leaves Slippi running. Bridge commands are
         // bounded (window discovery is at most 45 seconds).
         using var responseTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(65));
-        var responseLine = await _reader.ReadLineAsync(responseTimeout.Token)
+        var responseLine = await _reader.ReadLineAsync(responseTimeout.Token).ConfigureAwait(false)
             ?? throw new IOException("Bridge closed the connection.");
         var response = JsonSerializer.Deserialize<BridgeResponse>(responseLine, JsonOptions)
             ?? throw new InvalidDataException("Bridge returned an empty response.");

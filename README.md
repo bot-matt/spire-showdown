@@ -65,7 +65,7 @@ available when the game itself runs as a native Wayland surface.
 
 ## Guided installation
 
-### Experimental Melee Unlocked arena (alpha.16)
+### Experimental Melee Unlocked arena (alpha.17)
 
 Starting with alpha.14, `install-bazzite.sh` and `install-windows.ps1` install
 the embedded Melee Unlocked arena. The explicit `install-arena-*` aliases do
@@ -85,14 +85,16 @@ Run the downloaded script with an
 explicit release tag to keep both machines on the same version:
 
 ```bash
-bash ./install-bazzite.sh --release v0.2.0-alpha.16
+bash ./install-bazzite.sh --release v0.2.0-alpha.17
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Release v0.2.0-alpha.16
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Release v0.2.0-alpha.17
 ```
 
 The Bazzite script prints the required `--display-driver x11` Steam option.
+Alpha.17 uses Melee Unlocked 0.8.75, decouples controller forwarding from UI/status
+polling, and follows the monitor refresh rate with predictive presentation.
 Windows installer execution and live cross-machine multiplayer remain
 unverified. See `melee-unlocked-patch/README.md` for arena verification status.
 

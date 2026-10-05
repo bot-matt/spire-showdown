@@ -24,7 +24,6 @@ internal sealed partial class DuelOverlay : CanvasLayer
     private readonly CheckButton _settingsFfa=new();
     private bool _arenaRunning, _unlocked;
     private bool _revealed;
-    private double _inputElapsed;
     private LinuxGameCubeAdapter? _linuxAdapter;
     private LinuxArenaKeyboard? _linuxKeyboard;
     private int _arenaControllerMode;
@@ -412,10 +411,8 @@ internal sealed partial class DuelOverlay : CanvasLayer
             return;
         _elapsed += delta;
         _relic.Visible=!_revealed;
-        _inputElapsed+=delta;
-        if (_arenaRunning && _unlocked && _inputElapsed>=1.0/60 && _arenaControllerMode is 0 or 1 or 3)
+        if (_arenaRunning && _unlocked && _arenaControllerMode is 0 or 1 or 3)
         {
-            _inputElapsed=0;
             if(OperatingSystem.IsLinux() && _arenaControllerMode is 0 or 3)
                 _linuxKeyboard??=new LinuxArenaKeyboard(unchecked((ulong)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle)));
             // Spire's NControllerManager skips its Steam Input updater when

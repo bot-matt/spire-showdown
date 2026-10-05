@@ -16,6 +16,8 @@ static void Assert(bool condition, string message)
     if (!condition) throw new Exception(message);
 }
 
+await BridgeClientContract.RunAsync();
+
 var usbDecoder = new GameCubeReportDecoder();
 var steamActions=new Dictionary<string,float> {
     ["controller_face_button_south"]=1,["controller_face_button_west"]=1,

@@ -11,7 +11,7 @@ using MegaCrit.Sts2.Core.Runs;
 namespace SpireShowdown;
 internal static partial class DuelRuntime
 {
-    private static ControllerState? _latestController;
+    private static volatile ControllerState? _latestController;
     public static bool IsUnlocked=>_settings?.ArenaBackend=="melee_unlocked";
     public static bool CanHandleFight(int count)=>count==2 ? CanStart || IsUnlocked
         : IsUnlocked && count is 3 or 4;

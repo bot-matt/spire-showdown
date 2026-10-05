@@ -29,6 +29,7 @@ bool enabled = false, playing = false, resumed = false, completed = false;
 std::atomic<bool> lab{true};
 uint64_t pad_sequence = 0, pad_received = 0;
 std::chrono::steady_clock::time_point last_control;
+int applied_volume = -1, applied_width = 0, applied_height = 0;
 std::array<int,4> stocks{{-1,-1,-1,-1}};
 std::array<int,4> kinds{{-1,-1,-1,-1}};
 uint16_t observed_stage = 0;
@@ -61,7 +62,10 @@ void read_control() {
     auto candidate = json::parse(f);
     if (candidate.value("duel_id", std::string()) != spec["duel_id"].get<std::string>()) return;
     control = std::move(candidate);
-    host::audio_set_volume(std::clamp(control.value("volume_percent", 0), 0, 100));
+    const int volume = std::clamp(control.value("volume_percent", 0), 0, 100);
+    if (volume != applied_volume) {
+      host::audio_set_volume(volume); applied_volume = volume;
+    }
     // No Godot controller is a normal state (keyboard or native adapter).
     // A null sample must not suppress resume, cancellation, or Lab settings.
     if (control.count("pad") && control["pad"].is_object() &&
@@ -70,7 +74,10 @@ void read_control() {
     }
     if (control.count("viewport") && control["viewport"].is_object()) {
       const int w=control["viewport"].value("width",0), h=control["viewport"].value("height",0);
-      if (w>=320 && h>=240 && w<=8192 && h<=8192) host::window_set_client_size(w,h);
+      if (w>=320 && h>=240 && w<=8192 && h<=8192 &&
+          (w != applied_width || h != applied_height)) {
+        host::window_set_client_size(w,h); applied_width=w; applied_height=h;
+      }
     }
     lab = control.value("lab_view", spec.value("lab_view", true));
     resumed = control.value("resume", false);
