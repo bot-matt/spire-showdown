@@ -93,6 +93,13 @@ void boot_cpu(ppc::Context& c, uint8_t* m) {
 }
 void enter_cpu(ppc::Context& c, uint8_t* m) {
   const uint32_t saved_lr = c.lr;
+  // HSD_PadMasterStatus / HSD_PadCopyStatus, NTSC-U 1.02 (controller.h).
+  // The first-card confirmation pulse can remain in the cached status when
+  // this scene enters in the same retrace. fn_8016D8AC interprets held A as
+  // switching Zelda/Sheik, so discard that boot-only press before spawning.
+  for (const uint32_t address : {0x804C1FACu, 0x804C20BCu})
+    for (uint32_t offset=0; offset<20; offset+=4)
+      host::wr32(address+offset,host::rd32(address+offset)&~uint32_t(0x100));
   ppc::call(c,m,0x801A427Cu); // gm_GetGameModeStateEnterData
   const uint32_t start = c.r[3];
   c.r[3] = start; ppc::call(c,m,0x80167A64u); // gm_SetupRulesDefaults
@@ -189,7 +196,10 @@ void event(const uint8_t* bytes, uint32_t size) {
       status("failed",-1,"Engine started with different stage/player rules"); host::request_exit(3); return;
     }
     if (spec.value("cpu_test",false) && (kinds[0] != spec["local_character"].get<int>() || kinds[1]!=2 || bytes[0x98]!=9)) {
-      status("failed",-1,"Engine did not apply requested characters/level-9 Fox"); host::request_exit(3); return;
+      status("failed",-1,"Engine did not apply requested characters/level-9 Fox (wanted " +
+        std::to_string(spec["local_character"].get<int>()) + ", got " + std::to_string(kinds[0]) +
+        "; CPU " + std::to_string(kinds[1]) + ", level " + std::to_string(bytes[0x98]) + ")");
+      host::request_exit(3); return;
     }
     status("ready");
     // Hold before READY/GO until Spire finishes the summon and reveals the
@@ -225,6 +235,11 @@ void input(host::PadState pads[4]) {
     pads[0]={}; pads[0].err=0;
     pads[0].button=host::retrace_count()%30<2 ? 0x0100 : 0;
     return;
+  }
+  // CPU boot does not need menu inputs; only the card scenes above do.
+  // In-match forwarding begins after the verified READY/reveal handshake.
+  if (!playing && spec.value("cpu_test",false)) {
+    pads[0]={}; pads[0].err=0; return;
   }
   read_control();
   const auto mode=spec.value("controller_mode",std::string("auto"));
