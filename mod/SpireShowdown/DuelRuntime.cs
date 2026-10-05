@@ -405,6 +405,13 @@ internal static partial class DuelRuntime
             {
                 try { await inputPump; }
                 catch (OperationCanceledException) when (inputCancellation.IsCancellationRequested) { }
+                // The main loop observes pump failures while the match is
+                // active. A concurrent transport error during teardown must
+                // not replace a verified winner or the engine's useful error.
+                catch (Exception error) when (inputCancellation.IsCancellationRequested)
+                {
+                    MainFile.Logger.Info($"Arena input transport stopped during cleanup: {error.Message}");
+                }
             }
         }
     }
